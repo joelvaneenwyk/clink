@@ -4,6 +4,7 @@
 --------------------------------------------------------------------------------
 clink = clink or {}
 clink._event_callbacks = clink._event_callbacks or {}
+clink._performance_tracking = clink._performance_tracking or {}
 
 --------------------------------------------------------------------------------
 -- Sends a named event to all registered callback handlers for it.
@@ -12,7 +13,11 @@ function clink._send_event(event, ...)
     if callbacks ~= nil then
         local _, func
         for _, func in ipairs(callbacks) do
+            local begin = clink._begin_performance()
             func(...)
+            if begin then
+                clink._update_performance(event, func, begin)
+            end
         end
     end
 end
@@ -25,7 +30,12 @@ function clink._send_event_cancelable(event, ...)
     if callbacks ~= nil then
         local _, func
         for _, func in ipairs(callbacks) do
-            if func(...) == false then
+            local begin = clink._begin_performance()
+            local r = func(...)
+            if begin then
+                clink._update_performance(event, func, begin)
+            end
+            if r == false then
                 return
             end
         end
@@ -42,7 +52,11 @@ function clink._send_event_cancelable_string_inout(event, string)
     if callbacks ~= nil then
         local _, func
         for _, func in ipairs(callbacks) do
+            local begin = clink._begin_performance()
             local s,continue = func(string)
+            if begin then
+                clink._update_performance(event, func, begin)
+            end
             if s then
                 string = s
             end
@@ -173,7 +187,12 @@ function clink._send_ondisplaymatches_event(matches, popup)
     if callbacks ~= nil then
         local func = callbacks[1]
         if func then
-            return func(matches, popup)
+            local begin = clink._begin_performance()
+            local m = func(matches, popup)
+            if begin then
+                clink._update_performance("ondisplaymatches", func, begin)
+            end
+            return m
         end
     end
     return matches
@@ -196,7 +215,12 @@ function clink._send_onfiltermatches_event(matches, completion_type, filename_co
     if callbacks ~= nil then
         local _, func
         for _, func in ipairs(callbacks) do
+            local begin = clink._begin_performance()
             local m = func(matches, completion_type, filename_completion_desired)
+            if begin then
+                clink._update_performance("onfiltermatches", func, begin)
+            end
+
             if m ~= nil then
                 matches = m
                 ret = matches
@@ -239,5 +263,78 @@ function clink._diag_events()
 
     if not any_events then
         print("  no event callbacks registered")
+    end
+end
+
+--------------------------------------------------------------------------------
+function clink._reset_performance_counters()
+    clink._performance_tracking = {}
+    clink._track_performance = settings.get("lua.debug")
+end
+
+--------------------------------------------------------------------------------
+function clink._begin_performance()
+    if clink._track_performance then
+        return clink.get_highres_counter()
+    end
+end
+
+--------------------------------------------------------------------------------
+function clink._update_performance(group, func, begin)
+    if not begin then
+        return
+    end
+
+    local elapsed = clink.get_highres_counter() - begin
+
+    local g = clink._performance_tracking[group]
+    if not g then
+        g = {}
+        clink._performance_tracking[group] = g
+    end
+
+    local s = (g[func] or 0) + elapsed
+    g[func] = s
+end
+
+--------------------------------------------------------------------------------
+function clink._diag_performance()
+    if not clink._track_performance then
+        return
+    end
+
+    local bold = "\x1b[1m"          -- Bold (bright).
+    local norm = "\x1b[m"           -- Normal.
+    local print = clink.print
+
+    local any_measured = false
+    local num_ignored = 0
+
+    clink.print(bold.."performance:"..norm)
+    for group_name,group_table in pairs (clink._performance_tracking) do
+        local any_in_group = false
+        for func,sec in pairs(group_table) do
+            -- Only report things that took at least 1 millisecond.
+            -- if e.sec >= 0.001 then
+                local info = debug.getinfo(func, 'S')
+                if info.short_src ~= "?" then
+                    local src = info.short_src..":"..info.linedefined
+
+                    if not any_in_group then
+                        clink.print("  "..group_name..":")
+                        any_in_group = true
+                        any_measured = true
+                    end
+
+                    print("", sec, src)
+                end
+            -- else
+            --     num_ignored = num_ignored + 1
+            -- end
+        end
+    end
+
+    if not any_measured then
+        print("  no functions with meaningful performance data")
     end
 end

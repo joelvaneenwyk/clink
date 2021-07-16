@@ -34,7 +34,11 @@ function clink._filter_prompt(prompt)
     local impl = function(prompt)
         for _, filter in ipairs(prompt_filters) do
             set_current_prompt_filter(filter)
+            local begin = clink._begin_performance()
             local filtered, onwards = filter:filter(prompt)
+            if begin then
+                clink._update_performance("prompt filters", filter.filter, begin)
+            end
             if filtered ~= nil then
                 if onwards == false then return filtered end
                 prompt = filtered
@@ -119,7 +123,11 @@ function clink.prompt.register_filter(filter, priority)
     local o = clink.promptfilter(priority)
     function o:filter(the_prompt)
         clink.prompt.value = the_prompt
+        local begin = clink._begin_performance()
         local stop = filter(the_prompt)
+        if begin then
+            clink._update_performance("prompt filters", filter, begin)
+        end
         return clink.prompt.value, not stop
     end
 end
@@ -220,6 +228,7 @@ function clink.promptcoroutine(func)
             local max_iter = 25
             for iteration = 1, max_iter + 1, 1 do
                 -- Pass false to let it know it is not async.
+-- TODO: PERFORMANCE
                 local result, _ = coroutine.resume(c, false--[[async]])
                 if result then
                     if coroutine.status(c) == "dead" then

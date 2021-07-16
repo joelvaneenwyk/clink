@@ -782,6 +782,10 @@ bool host::edit_line(const char* prompt, str_base& out)
         lua.send_event("oninject");
     }
 
+    // Reset performance tracking.
+    if (send_event)
+        lua.reset_performance_counters();
+
     // Send onbeginedit event.
     if (send_event)
         lua.send_event("onbeginedit");
@@ -1112,6 +1116,7 @@ int clink_diagnostics(int count, int invoking_key)
             "_diag_coroutines",
             "_diag_refilter",
             "_diag_events",
+            "_diag_performance",
             "_diag_custom",
         };
 

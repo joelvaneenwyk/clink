@@ -572,6 +572,31 @@ static int get_refilter_redisplay_count(lua_State* state)
     return 2;
 }
 
+//------------------------------------------------------------------------------
+// UNDOCUMENTED; internal use only.
+static bool s_has_highres_counter = false;
+static LARGE_INTEGER s_li_highres_freq;
+static int has_highres_counter(lua_State* state)
+{
+    lua_pushboolean(state, s_has_highres_counter);
+    return 1;
+}
+
+//------------------------------------------------------------------------------
+// UNDOCUMENTED; internal use only.
+static int get_highres_counter(lua_State* state)
+{
+    if (!s_has_highres_counter)
+        return 0;
+
+    LARGE_INTEGER li;
+    QueryPerformanceCounter(&li);
+
+    double sec = li.QuadPart / s_li_highres_freq.QuadPart;
+    lua_pushnumber(state, sec);
+    return 1;
+}
+
 
 
 //------------------------------------------------------------------------------
@@ -587,6 +612,8 @@ extern int clink_print(lua_State* state);
 //------------------------------------------------------------------------------
 void clink_lua_initialise(lua_state& lua)
 {
+    s_has_highres_counter = !!QueryPerformanceFrequency(&s_li_highres_freq);
+
     struct {
         const char* name;
         int         (*method)(lua_State*);
@@ -621,6 +648,8 @@ void clink_lua_initialise(lua_state& lua)
         // UNDOCUMENTED; internal use only.
         { "refilterprompt",         &refilter_prompt },
         { "get_refilter_redisplay_count", &get_refilter_redisplay_count },
+        { "has_highres_counter",    &has_highres_counter },
+        { "get_highres_counter",    &get_highres_counter },
     };
 
     lua_State* state = lua.get_state();

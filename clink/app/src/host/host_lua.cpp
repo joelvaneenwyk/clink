@@ -280,3 +280,11 @@ void host_lua::call_lua_filter_matches(char** matches, int completion_type, int 
 {
     m_generator.filter_matches(matches, char(completion_type), !!filename_completion_desired);
 }
+
+//------------------------------------------------------------------------------
+void host_lua::reset_performance_counters()
+{
+    lua_State* state = m_state.get_state();
+    if (m_state.push_named_function(state, "clink._reset_performance_counters"))
+        m_state.pcall(0, 0);
+}
