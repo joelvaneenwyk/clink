@@ -1,5 +1,5 @@
 @echo off
-setlocal
+setlocal EnableDelayedExpansion EnableExtensions
 set __DBG=
 set __ME=%~dp0
 
@@ -15,7 +15,11 @@ if x%1x == xhelpx goto :usage
 if x%1x == x/dbgx set __DBG=call devenv /debugexe
 if x%1x == x/dbgx shift & goto :arg
 
-%__DBG% %__ME%.build\vs2019\bin\debug\clink_test_x64.exe %1 %2 %3
+set "_exe=%__ME%.build\vs2019\bin\debug\clink_test_x64.exe"
+if not exist "!_exe!" set "_exe=%__ME%.build\vs2022\bin\debug\clink_test_x64.exe"
+if not exist "!_exe!" set "_exe=%__ME%.build\vs2022\bin\release\clink_test_x64.exe"
+
+%__DBG% "!_exe!" %1 %2 %3
 goto :eof
 
 :usage
