@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include "base.h"
+
 //------------------------------------------------------------------------------
 template <typename T>
 class array

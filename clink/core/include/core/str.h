@@ -166,6 +166,10 @@ bool str_impl<TYPE>::reserve(uint32 new_size, bool exact)
     }
 
     TYPE* new_data = (TYPE*)malloc(new_size * sizeof(TYPE));
+    if (new_data == nullptr) 
+    {
+        return false;
+    }
     memcpy(new_data, c_str(), old_size * sizeof(TYPE));
 
     free_data();
