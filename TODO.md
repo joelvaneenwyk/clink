@@ -1,14 +1,15 @@
+# Clink TODO List
+
 _This todo list describes ChrisAnt996's current intended roadmap for Clink's future.  It is a living document and does not convey any guarantee about when or whether any item may be implemented._
 
-<br/>
+## IMPROVEMENTS
 
-# IMPROVEMENTS
+### High Priority
 
-## High Priority
+### Normal Priority
 
-## Normal Priority
+### Low Priority
 
-## Low Priority
 - Open issue in Terminal repo about bugs in the new shell integration in v1.18.
   - Transient prompt can lead to Terminal getting confused about where prompt markers are.
   - Can the same thing happen with zsh and powerlevel10k transient prompt?
@@ -29,33 +30,39 @@ _This todo list describes ChrisAnt996's current intended roadmap for Clink's fut
   - But an important benefit of the current implementation is that `program_with_no_argmatcher --unknown-flag:filename` is able to do filename completion on `filename`.
   - Maybe a better solution would be to let argmatchers specify `getopt`-like parsing rules.  Then an argmatcher parser could split the word into `-f` and `c:\file`, and the second part could be put into a "pending word" variable which the parser could check before trying to advance the parser's word index?  And could even potentially recognize `-az` as two valid flags `-a` and `-z` when appropriate (and if either flag is unknown, then color the whole word as unknown).
 - Allow removing event handlers, e.g. `clink.onbeginedit(func)` to add an event handler, and something like `clink.onbeginedit(func, false)` or `clink.removebeginedit(func)` to remove one?  Or maybe return a function that can be called to remove it, e.g. like below (but make sure repeated calls become no-ops).  The `clink-diagnostics` command would need to still show any removed event handlers until the next beginedit.  But it gets tricky if `func` is already registered -- should the new redundant registration's removal function be able to remove the pre-existing event handler?
-    ```
+
+    ```lua
     local remove = clink.onbeginedit(func) -- add func
     remove()                               -- remove func
     ```
+
 - Allow Lua to set the comment row for the input line?
   - Need a simple and reliable trigger for clearing the comment row later; maybe `clink.onaftercommand()` is enough?
   - Don't add this ability unless there is a way to ensure comment rows don't get "leaked" and continue showing up past when they were relevant.
 - Make a reusable wrapper mechanism to create coroutine-friendly threaded async operations in Lua?
 
-## Follow Up
+### Follow Up
+
 - Push update to z.lua repo.
 
-## Argmatcher syntax
+### Argmatcher syntax
+
 - See the argmatcher_syntax branch.
 
 <br/>
 <br/>
 
-# "New" commits from Martin
+## "New" commits from Martin
 
-## To Be Considered
+### To Be Considered
+
 - Ctrl-W changes.  While I agree in principle, this kind of change upsets people who are used to bash.  Maybe it should only apply when `clink.default_bindings` == `windows`?
   - [Ctrl-W is more useful if it kills on more granular word boundaries](https://github.com/mridgers/clink/commit/5ee004074e0869273ac42006edef4bcdcfd0e24f)
   - [Smarter Ctrl-W word deletion](https://github.com/mridgers/clink/commit/a385a1695bb425d6f48aae4e587c9c06af8515f6)
 - [Type name style change](https://github.com/mridgers/clink/commit/e6baa31badb8854413dd34988cc33b7aeb68b7e0) -- Huge; renames types from `foo_bar` to `FooBar`.
 
-## Leaning Towards No
+### Leaning Towards No
+
 - [Changed member style](https://github.com/mridgers/clink/commit/fd5041a34ba162fd3adc1b7b0c5910438e343235) -- Huge; renames members from `m_foo` to `_foo`.
 - It could be reasonable to add an iterator version of `os.globfiles()`, but replacing it breaks compatibility.
   - [Made Lua's os.glob*() work like an iterator instead of building a table](https://github.com/mridgers/clink/commit/13fc3b68046d2cee0f2188b9c8d54fa0cbc18718)
@@ -63,7 +70,8 @@ _This todo list describes ChrisAnt996's current intended roadmap for Clink's fut
   - [Fixed "cd \\" Lua error](https://github.com/mridgers/clink/commit/d2ffed58f75597cec08d85e8abf4fafc0b60a067)
   - [builder::addmatches() now also accepts a function](https://github.com/mridgers/clink/commit/6a2b818efd84377b3a625bb1ecdeffe89da20cd6) -- This is inconsistent with `argmatcher:addflags()` and `argmatcher:addarg()`, and is generally non-intuitive.
 
-## No
+### No
+
 - [Use AppData/Local for a the DLL cache as temp can get cleaned](https://github.com/mridgers/clink/commit/8ed3cb0b427970c8082acb238071b26d5e788057) -- Getting cleaned is desirable.  Otherwise DLL versions accumulate without bound.
 - [Don't expect the user to account for a null terminator](https://github.com/mridgers/clink/commit/4583281d464933d9ce021aedcdf3edc5e3fdc189) -- This still requires the user to account for a null terminator, by removing the space for the null terminator, otherwise the block gets sized differently than expected (and can have extra slop allocated).
 - Removing all copyright dates seems problematic.  Isn't it required in copyright notices?  And in the program logo header it provides date context for the program version being used.
@@ -91,9 +99,10 @@ _This todo list describes ChrisAnt996's current intended roadmap for Clink's fut
 <br/>
 <br/>
 
-# APPENDICES
+## APPENDICES
 
-## Known Issues
+### Known Issues
+
 - When `echo` is `off`, CMD doesn't print a prompt, and Clink can't which ReadConsoleW calls are for reading the input line.  In theory, Clink could use `RtlCaptureStackBackTrace()` to deduce when a call is for the input line (see comment in `host_cmd::read_console()`), but that API isn't reliable for use in non-debug code.
 - `foo bar a/b/c` will try to expand `a/b/c` as an abbreviated path even if `foo bar` never generates filename matches.  This is a case that Clink can't really get perfectly right anymore, because of the automatic deduction of whether to use file matches.  Overall, this seems acceptable.
 - Readline's `expand_tilde()` doesn't handle embedded `{space}{tilde}{pathsep}` correctly in strings; `rl.expandtilde()` does, and has an optional parameter to use Readline's original style of tilde expansion.
@@ -103,13 +112,15 @@ _This todo list describes ChrisAnt996's current intended roadmap for Clink's fut
 - [Terminal #10191](https://github.com/microsoft/terminal/issues/10191#issuecomment-897345862) Microsoft Terminal does not allow a console application to know about or access the scrollback history, nor to scroll the screen.  It blocks Clink's scrolling commands, and also the `console.findline()` function and everything else that relies on access to the scrollback history.
 - The auto-updater settings are stored in the profile.  That makes it more cumbersome to control the auto-updater settings if you use multiple Clink profiles.  However, it makes it possible to control the auto-updater settings separately in "portable installs" (e.g. on a USB memory stick).
 
-## Mystery
+### Mystery
+
 - Once in a while raw mouse input sequences spuriously show up in the edit line; have only noticed it when the CMD window did not have focus at the time.  _[Not fixed by bb870fc494.]_ _[Have not seen for many weeks.]_ _[Likely due to `ENABLE_VIRTUAL_TERMINAL_INPUT` and largely mitigated by a8d80b752a.]_ _[Root cause is https://github.com/microsoft/terminal/issues/15711.]_
 - Mouse input toggling is unreliable in Windows Terminal, and sometimes ends up disallowing mouse input.  _[Might be fixed by bb870fc494?]_
 - `"qq": "QQ"` in `.inputrc`, and then type `qa` --> infinite loop.  _[Was occurring in a 1.3.9 development build; but no longer repros in a later 1.3.9 build, and also does not repro in the 1.3.8 release build.]_
 - Windows 10.0.19042.630 seems to have problems when using WriteConsoleW with ANSI escape codes in a powerline prompt in a git repo.  But Windows 10.0.19041.630 doesn't.
 
-## Punt
+### Punt
+
 - CMD sets `=ExitCode` = the exit code from running a program.  But it doesn't set the envvar for various other things that update CMD's internal exit code variable.  So, Clink's tempfile dance to get `%ERRORLEVEL%` is still necessary.
 - A reliable way for scripts to tell whether they're loaded in `clink set` versus in `cmd`.  _[No.  The only case reported that needed this was trying to access key bindings when the script was loaded, and due to a bug in `rl.getkeybindings()` Clink crashed.  The crash has been fixed (now it returns an empty table instead), and the script is better implemented using `clink.oninject()` anyway.]_
 - Provide some kind of "line editor tester" in the `clink lua` interpreter to facilitate writing unit tests for argmatchers?  _[No.  Too many fundamental incompatibilities with the rest of the code.  Completion script authors can do unit testing of their own code, but trying to do end-to-end testing of Clink itself from within Clink itself with being integrated with CMD?  Hard no.]_
@@ -134,6 +145,7 @@ _This todo list describes ChrisAnt996's current intended roadmap for Clink's fut
     - E.g. a prompt whose last line wraps TWICE and has one UTF8 multibyte character in the FIRST wrapped segment; cursor position on the final line is offset wrongly.
       - It looks like this line `nleft = cpos_buffer_position - pos;` is trying to reset `nleft` to only include positions on the current screen row, which then throws off the `woff` arithmetic.  It could maybe use modulus on the overall position, but that wouldn't account for double-wide characters that don't fit at the end of a screen row and wrap "early".
       - This code might be relevant:
+
           ```c
           /* This assumes that all the invisible characters are split
              between the first and last lines of the prompt, if the
@@ -141,6 +153,7 @@ _This todo list describes ChrisAnt996's current intended roadmap for Clink's fut
           /* XXX - not sure this is ever executed */
           _rl_last_c_pos -= (wrap_offset-prompt_invis_chars_first_line);
           ```
+
     - E.g. a prompt whose last line wraps AT the screen width and contains multibyte UTF8 characters; cursor position near the beginning of the input line gets positioned incorrectly.
       - `_rl_last_c_pos` is negative on entry to `rl_redisplay()`.
       - Because the "yet another special case" logic is triggered incorrectly, and adjusts cpos incorrectly, which carries forward to future calls.
@@ -182,4 +195,4 @@ _This todo list describes ChrisAnt996's current intended roadmap for Clink's fut
 - [#486](https://github.com/mridgers/clink/issues/486) **Ctrl+C** doesn't always work properly _[Unrelated to Clink; the exact same behavior occurs with plain cmd.exe]_
 
 ---
-Chris Antos - sparrowhawk996@gmail.com
+Chris Antos - <sparrowhawk996@gmail.com>
