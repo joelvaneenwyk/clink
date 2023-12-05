@@ -19,5 +19,5 @@ jobs:
     
     - name: Compile my project
       run: |
-        premake5 gmake2
+        premake5 gmake
         make
