@@ -32,7 +32,7 @@ extern "C" {
 #endif
 
 #if !defined(LUA_PROGNAME)
-#define LUA_PROGNAME    "lua"
+#define LUA_PROGNAME    "clink lua"
 #endif
 
 #if !defined(LUA_MAXINPUT)
@@ -47,6 +47,31 @@ extern "C" {
     LUA_INIT "_" LUA_VERSION_MAJOR "_" LUA_VERSION_MINOR
 
 //------------------------------------------------------------------------------
+void before_read_stdin(lua_saved_console_mode* saved, void* stream)
+{
+    saved->h = 0;
+    HANDLE h_stdin = GetStdHandle(STD_INPUT_HANDLE);
+    HANDLE h_stream = HANDLE(_get_osfhandle(_fileno((FILE*)stream)));
+    if (h_stdin && h_stdin == h_stream)
+    {
+        if (GetConsoleMode(h_stdin, &saved->mode))
+        {
+            saved->h = h_stdin;
+            DWORD new_mode = saved->mode;
+            new_mode |= ENABLE_PROCESSED_INPUT|ENABLE_LINE_INPUT|ENABLE_ECHO_INPUT;
+            new_mode &= ~(ENABLE_WINDOW_INPUT|ENABLE_MOUSE_INPUT);
+            SetConsoleMode(h_stdin, new_mode | ENABLE_PROCESSED_INPUT);
+        }
+    }
+}
+void after_read_stdin(lua_saved_console_mode* saved)
+{
+    if (saved->h)
+        SetConsoleMode(saved->h, saved->mode);
+}
+static lua_clink_callbacks g_lua_callbacks = { before_read_stdin, after_read_stdin };
+
+//------------------------------------------------------------------------------
 static char const *progname = LUA_PROGNAME;
 
 #define lua_stdin_is_tty()  _isatty(_fileno(stdin))
@@ -58,18 +83,14 @@ static bool lua_readline(lua_State*, char* buffer, const char* message)
     fflush(stdout);
 
     // Set processed input mode.
-    DWORD modeIn;
-    HANDLE h = GetStdHandle(STD_INPUT_HANDLE);
-    const bool got_mode = !!GetConsoleMode(h, &modeIn);
-    if (got_mode)
-        SetConsoleMode(h, modeIn | ENABLE_PROCESSED_INPUT);
+    lua_saved_console_mode saved;
+    g_lua_callbacks.before_read_stdin(&saved, stdin);
 
     // Get line.
     const bool ok = fgets(buffer, LUA_MAXINPUT, stdin) != nullptr;
 
     // Restore console mode.
-    if (got_mode)
-        SetConsoleMode(h, modeIn);
+    g_lua_callbacks.after_read_stdin(&saved);
 
     return ok;
 }
@@ -79,6 +100,7 @@ static bool lua_readline(lua_State*, char* buffer, const char* message)
 
 //------------------------------------------------------------------------------
 static lua_State *globalL = nullptr;
+static int32 s_enable_debugging = 0;
 
 static void lstop (lua_State *L, lua_Debug *ar) {
   (void)ar;  /* unused arg. */
@@ -92,10 +114,24 @@ static void laction (int32 i) {
   lua_sethook(globalL, lstop, LUA_MASKCALL | LUA_MASKRET | LUA_MASKCOUNT, 1);
 }
 
+static int32 traceback (lua_State *L) {
+  const char *msg = lua_tostring(L, 1);
+  if (msg)
+    luaL_traceback(L, L, msg, 1);
+  else if (!lua_isnoneornil(L, 1)) {  /* is there an error object? */
+    if (!luaL_callmeta(L, 1, "__tostring"))  /* try its 'tostring' metamethod */
+      lua_pushliteral(L, "(no error message)");
+  }
+  return 1;
+}
+
 static int32 docall (lua_State *L, int32 narg, int32 nres) {
   int32 status;
   int32 base = lua_gettop(L) - narg;  /* function index */
-  lua_getglobal(L, "_error_handler");
+  if (s_enable_debugging > 1)
+    lua_getglobal(L, "_error_handler"); /* push debugging error handler */
+  else
+    lua_pushcfunction(L, traceback);  /* push traceback function */
   lua_insert(L, base);  /* put it under chunk and args */
   globalL = L;  /* to be available to 'laction' */
   signal(SIGINT, laction);
@@ -141,7 +177,6 @@ int32 interpreter(int32 argc, char** argv)
     std::vector<run_arg> run_args;
 
     // Parse arguments
-    int32 enable_debugging = 0;
     bool ignore_env = false;
     bool go_interactive = false;
     bool show_version = false;
@@ -162,7 +197,7 @@ int32 interpreter(int32 argc, char** argv)
         switch (i)
         {
         case 'D':
-            enable_debugging++;
+            s_enable_debugging++;
             break;
         case 'E':
             ignore_env = true;
@@ -212,16 +247,17 @@ int32 interpreter(int32 argc, char** argv)
         LOG(LUA_COPYRIGHT);
     }
 
-    settings::find("lua.traceback_on_error")->set("true");
-    if (enable_debugging)
+    __lua_set_clink_callbacks(&g_lua_callbacks);
+
+    settings::load("nul");
+
+    if (s_enable_debugging)
     {
         extern bool g_force_load_debugger;
         g_force_load_debugger = true;
-        if (enable_debugging > 1)
+        if (s_enable_debugging > 1)
             settings::find("lua.break_on_error")->set("true");
     }
-
-    settings::load("nul");
 
     terminal term = terminal_create(nullptr, false/*cursor_visibility*/);
     printer printer(*term.out);
