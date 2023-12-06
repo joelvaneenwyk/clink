@@ -1,0 +1,27 @@
+name: make
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+
+jobs:
+  build:
+
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - uses: abel0b/setup-premake@v2.3
+      with:
+        version: "5.0.0-beta2"
+
+    - name: Generate VS2022
+      run: |
+        premake5 vs2022
+
+    - name: Compile VS2022
+      shell: cmd
+      run: |
+        bldall

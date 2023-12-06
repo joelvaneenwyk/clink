@@ -39,50 +39,49 @@ end
 
 --------------------------------------------------------------------------------
 local function setup_cfg(cfg)
-    configuration(cfg)
+    filter {"configurations:" .. cfg}
         defines("CLINK_"..cfg:upper())
         targetdir(to.."/bin/"..cfg)
         objdir(to.."/obj/")
 
-    configuration({cfg, "x32"})
+    filter { "configurations:" .. cfg, "platforms:x32" }
         targetsuffix("_x86")
 
-    configuration({cfg, "x64"})
+    filter { "configurations:" .. cfg, "platforms:x64" }
         targetsuffix("_x64")
 
-    configuration({cfg, "arm64"})
+    filter { "configurations:" .. cfg, "platforms:arm64" }
         targetsuffix("_arm64")
 end
 
 
 
 --------------------------------------------------------------------------------
-local function clink_project(name)
+local function clink_project(name, input_kind)
     project(name)
     flags("fatalwarnings")
     language("c++")
+    kind(input_kind)
 
-    configuration("vs*")
+    filter { "action:vs*" }
         buildoptions("-FI\""..path.getabsolute("clink/core/warning.h").."\"")
-    configuration()
+
+    filter {}
 end
 
 --------------------------------------------------------------------------------
 local function clink_lib(name)
-    clink_project(name)
-    kind("staticlib")
+    clink_project(name, "staticlib")
 end
 
 --------------------------------------------------------------------------------
 local function clink_dll(name)
-    clink_project(name)
-    kind("sharedlib")
+    clink_project(name, "sharedlib")
 end
 
 --------------------------------------------------------------------------------
 local function clink_exe(name)
-    clink_project(name)
-    kind("consoleapp")
+    clink_project(name, "consoleapp")
 end
 
 --------------------------------------------------------------------------------
@@ -200,8 +199,8 @@ end
 
 --------------------------------------------------------------------------------
 workspace("clink")
-    configurations({"debug", "release", "final"})
-    platforms({"x32", "x64", "arm64"})
+    configurations {"debug", "release", "final"}
+    platforms {"x32", "x64", "arm64"}
     location(to)
 
     characterset("MBCS")
@@ -216,13 +215,21 @@ workspace("clink")
     setup_cfg("release")
     setup_cfg("debug")
 
-    configuration("debug")
+    filter { "configurations:debug" }
+        defines("CLINK_BUILD_ROOT=\""..path.getabsolute(to).."\"")
         rtti("on")
         optimize("off")
         defines("DEBUG")
         defines("_DEBUG")
 
-    configuration("final")
+    filter { "configurations:release" }
+        defines("CLINK_BUILD_ROOT=\""..path.getabsolute(to).."\"")
+        --rtti("off")
+        rtti("on")
+        optimize("full")
+        defines("NDEBUG")
+
+    filter { "configurations:final" }
         --rtti("off")
         rtti("on")
         optimize("full")
@@ -230,24 +237,15 @@ workspace("clink")
         flags("NoBufferSecurityCheck")
         defines("NDEBUG")
 
-    configuration({"final", "vs*"})
+    filter { "configurations:final", "action:vs*" }
         flags("LinkTimeOptimization")
 
-    configuration("release")
-        --rtti("off")
-        rtti("on")
-        optimize("full")
-        defines("NDEBUG")
-
-    configuration("debug or release")
-        defines("CLINK_BUILD_ROOT=\""..path.getabsolute(to).."\"")
-
-    configuration("vs*")
+    filter { "action:vs*" }
         defines("_HAS_EXCEPTIONS=0")
         defines("_CRT_SECURE_NO_WARNINGS")
         defines("_CRT_NONSTDC_NO_WARNINGS")
 
-    configuration("gmake")
+    filter { "action:gmake" }
         defines("__MSVCRT_VERSION__=0x0601")
         defines("_WIN32_WINNT=0x0601")
         defines("WINVER=0x0601")
@@ -257,7 +255,7 @@ workspace("clink")
         buildoptions("-fdata-sections")
         makesettings { "CC=gcc" }
 
-    configuration("*")
+    filter { "*" }
         includedirs(".build")           -- for clink_commit.h
 
 --------------------------------------------------------------------------------
@@ -316,7 +314,7 @@ project("detours")
     removefiles("detours/disolia64.cpp")
     removefiles("detours/uimports.cpp")     -- is included by creatwth.cpp
 
-    configuration("gmake")
+    filter { "configurations:gmake" }
         buildoptions("-fpermissive")
         buildoptions("-std=c++17")
         buildoptions("-Wno-multichar")
@@ -334,11 +332,11 @@ clink_lib("clink_lib")
     files("clink/lib/include/**")
 
     includedirs("clink/lib/src")
-    configuration("vs*")
+    filter { "action:vs*" }
         pchheader("pch.h")
         pchsource("clink/lib/src/pch.cpp")
 
-    configuration("gmake")
+    filter { "action:gmake" }
         buildoptions("-fpermissive")
         buildoptions("-std=c++17")
 
@@ -359,11 +357,11 @@ clink_lib("clink_lua")
     excludes("clink/lua/src/lua_editor_tester.cpp")
 
     includedirs("clink/lua/src")
-    configuration("vs*")
+    filter { "action:vs*" }
         pchheader("pch.h")
         pchsource("clink/lua/src/pch.cpp")
 
-    configuration("gmake")
+    filter { "action:gmake" }
         buildoptions("-fpermissive")
         buildoptions("-std=c++17")
 
@@ -374,11 +372,11 @@ clink_lib("clink_core")
     files("clink/core/include/**")
 
     includedirs("clink/core/src")
-    configuration("vs*")
+    filter { "action:vs*" }
         pchheader("pch.h")
         pchsource("clink/core/src/pch.cpp")
 
-    configuration("gmake")
+    filter { "action:gmake" }
         buildoptions("-fpermissive")
         buildoptions("-std=c++17")
 
@@ -391,12 +389,12 @@ clink_lib("clink_terminal")
     files("clink/terminal/include/**")
 
     includedirs("clink/terminal/src")
-    configuration("vs*")
+    filter { "action:vs*" }
         exceptionhandling("on")         -- for std::wregex
         pchheader("pch.h")
         pchsource("clink/terminal/src/pch.cpp")
 
-    configuration("gmake")
+    filter { "action:gmake" }
         buildoptions("-fexceptions")    -- for std::wregex
         buildoptions("-fpermissive")
         buildoptions("-Wno-multichar")
@@ -410,7 +408,7 @@ clink_lib("clink_process")
     files("clink/process/include/**")
 
     includedirs("clink/process/src")
-    configuration("vs*")
+    filter { "action:vs*" }
         flags { "NoRuntimeChecks" } -- required for 32 bit by the inject lambda in process::remote_call
         pchheader("pch.h")
         pchsource("clink/process/src/pch.cpp")
@@ -420,7 +418,7 @@ clink_lib("clink_process")
         exceptionhandling("off") -- required by the inject lambda in process::remote_call
         -- <SupportJustMyCode>false</SupportJustMyCode> -- required by the inject lambda in process::remote_call
 
-    configuration("gmake")
+    filter { "configurations:gmake" }
         buildoptions("-fpermissive")
         buildoptions("-std=c++17")
 
@@ -442,11 +440,11 @@ clink_lib("clink_app_common")
     excludes("clink/app/src/dll/main.cpp")
     excludes("clink/app/src/loader/main.cpp")
 
-    configuration("vs*")
+    filter { "action:vs*" }
         pchheader("pch.h")
         pchsource("clink/app/src/pch.cpp")
 
-    configuration("gmake")
+    filter { "action:gmake" }
         buildoptions("-fpermissive")
         buildoptions("-std=c++17")
 
@@ -471,10 +469,10 @@ clink_dll("clink_app_dll")
     files("clink/app/src/version.rc")
     files("clink/app/src/manifest.rc")
 
-    configuration("vs*")
+    filter { "action:vs*" }
         links("dbghelp")
 
-    configuration("gmake")
+    filter { "action:gmake" }
         buildoptions("-fpermissive")
         buildoptions("-std=c++17")
         links("gdi32")
@@ -489,21 +487,21 @@ clink_exe("clink_app_exe")
     files("clink/app/src/version.rc")
     files("clink/app/src/manifest.rc")
 
-    configuration("final")
+    filter { "configurations:final" }
         postbuild_copy("CHANGES", "final")
         postbuild_copy("LICENSE", "final")
         postbuild_copy("clink/app/src/loader/clink.bat", "final")
         postbuild_copy("clink/app/src/loader/clink.lua", "final")
 
-    configuration("release")
+    filter { "configurations:release" }
         postbuild_copy("clink/app/src/loader/clink.bat", "release")
         postbuild_copy("clink/app/src/loader/clink.lua", "release")
 
-    configuration("debug")
+    filter { "configurations:debug" }
         postbuild_copy("clink/app/src/loader/clink.bat", "debug")
         postbuild_copy("clink/app/src/loader/clink.lua", "debug")
 
-    configuration("gmake")
+    filter { "configurations:gmake" }
         buildoptions("-fpermissive")
         buildoptions("-std=c++17")
 
@@ -545,11 +543,11 @@ clink_exe("clink_test")
 
     exceptionhandling("on")
 
-    configuration("vs*")
+    filter { "action:vs*" }
         pchheader("pch.h")
         pchsource("clink/test/src/pch.cpp")
 
-    configuration("gmake")
+    filter { "action:gmake" }
         buildoptions("-fpermissive")
         buildoptions("-std=c++17")
         links("gdi32")
