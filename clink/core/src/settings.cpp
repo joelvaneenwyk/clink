@@ -984,10 +984,6 @@ bool setting_color::parse(const char* value, store<const char*>& out)
         itoa(fg, buf, 10);
         code << ";" << buf;
     }
-    else
-    {
-        code << ";39";
-    }
 
     if (bg >= 0)
     {
@@ -997,10 +993,6 @@ bool setting_color::parse(const char* value, store<const char*>& out)
         char buf[10];
         itoa(bg, buf, 10);
         code << ";" << buf;
-    }
-    else
-    {
-        code << ";49";
     }
 
     out.value = code.c_str();
@@ -1057,6 +1049,7 @@ void setting_color::get_descriptive(str_base& out) const
     str_iter part;
     str_tokeniser parts(tmp.c_str(), ";");
 
+    bool any_fg = false;
     while (parts.next(part))
     {
         int32 x = int_from_str_iter(part);
@@ -1100,17 +1093,21 @@ nope:
                 x -= 60;
             }
             out << color_names[x - 30] << " ";
+            any_fg = true;
         }
         else if (x == 39)
         {
             if (expected > fg_token) goto nope;
             expected = fg_token + 1;
             out << "default ";
+            any_fg = true;
         }
         else if ((x >= 40 && x < 48) || (x >= 100 && x < 108))
         {
             if (expected > bg_token) goto nope;
             expected = bg_token + 1;
+            if (!any_fg)
+                out << "default ";
             out << "on ";
             x -= 10;
             if (x >= 90)

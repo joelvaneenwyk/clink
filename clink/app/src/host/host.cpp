@@ -26,6 +26,7 @@
 #include <lib/clink_rl_signal.h>
 #include <lib/errfile_reader.h>
 #include <lib/sticky_search.h>
+#include <lib/display_readline.h>
 #include <lua/lua_script_loader.h>
 #include <lua/lua_state.h>
 #include <lua/prompt.h>
@@ -289,6 +290,21 @@ bool host_remove_dir_history(int32 index)
         }
     }
     return false;
+}
+
+//------------------------------------------------------------------------------
+void host_get_app_context(int32& id, host_context& context)
+{
+    const auto* app = app_context::get();
+    if (app)
+    {
+        id = app->get_id();
+        app->get_binaries_dir(context.binaries);
+        app->get_state_dir(context.profile);
+        app->get_default_settings_file(context.default_settings);
+        app->get_default_init_file(context.default_inputrc);
+        app->get_script_path_readable(context.scripts);
+    }
 }
 
 
@@ -562,6 +578,7 @@ cant:
         rollback<int32> viml(_rl_vi_ins_modestr_len, 0);
         rollback<int32> vcml(_rl_vi_cmd_modestr_len, 0);
         rollback<int32> mml(_rl_mark_modified_lines, 0);
+        rollback<bool> dmncr(g_display_manager_no_comment_row, true);
 
         set_prompt(prompt, rprompt, true/*redisplay*/);
     }
@@ -663,19 +680,6 @@ bool host::has_event_handler(const char* event_name)
         return false;
 
     return lua_toboolean(state, -1) != false;
-}
-
-//------------------------------------------------------------------------------
-void host::get_app_context(int32& id, host_context& context)
-{
-    const auto* app = app_context::get();
-
-    id = app->get_id();
-    app->get_binaries_dir(context.binaries);
-    app->get_state_dir(context.profile);
-    app->get_default_settings_file(context.default_settings);
-    app->get_default_init_file(context.default_inputrc);
-    app->get_script_path_readable(context.scripts);
 }
 
 //------------------------------------------------------------------------------
@@ -864,10 +868,10 @@ skip_errorlevel:
         // Load inputrc before loading scripts.  Config settings in inputrc can
         // affect Lua scripts (e.g. completion-case-map affects '-' and '_' in
         // command names in argmatchers).
-        str_moveable bin_dir;
-        app->get_binaries_dir(bin_dir);
-        extern void initialise_readline(const char* shell_name, const char* state_dir, const char* bin_dir);
-        initialise_readline("clink", state_dir.c_str(), bin_dir.c_str());
+        str_moveable default_inputrc;
+        app->get_default_init_file(default_inputrc);
+        extern void initialise_readline(const char* shell_name, const char* state_dir, const char* default_inputrc, bool no_user=false);
+        initialise_readline("clink", state_dir.c_str(), default_inputrc.c_str());
         initialise_lua(lua);
         lua.load_scripts();
     }

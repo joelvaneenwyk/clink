@@ -12,6 +12,7 @@
 #include <core/str_compare.h>
 #include <core/str_iter.h>
 #include <terminal/ecma48_iter.h>
+#include <lib/host_callbacks.h>
 #include <lib/line_editor_integration.h>
 #include <lib/rl_integration.h>
 #include <lib/matches.h>
@@ -338,7 +339,7 @@ static int32 is_rl_variable_true(lua_State* state)
 ///
 /// The <span class="arg">key</span> sequence string is the same format as from
 /// <code>clink echo</code>.  See <a href="#discoverkeysequences">Discovering
-/// Clink key sindings</a> for more information.
+/// Clink key bindings</a> for more information.
 ///
 /// An optional <span class="arg">keymap</span> may be specified as well.  If it
 /// is omitted or nil, then the current keymap is searched.  Otherwise it may
@@ -443,7 +444,7 @@ static int32 get_rl_binding(lua_State* state)
 ///
 /// The <span class="arg">key</span> sequence string is the same format as from
 /// <code>clink echo</code>.  See <a href="#discoverkeysequences">Discovering
-/// Clink key sindings</a> for more information.
+/// Clink key bindings</a> for more information.
 ///
 /// The <span class="arg">binding</span> is either the name of a Readline
 /// command, a quoted macro string (just like in the .inputrc config file), or
@@ -1274,36 +1275,219 @@ static int32 is_line_equal(lua_State* state)
     return 1;
 }
 
+//------------------------------------------------------------------------------
+/// -name:  rl.translatekey
+/// -ver:   1.6.1
+/// -arg:   input:string
+/// -arg:   form:integer
+/// -ret:   string | nil
+/// Translates <span class="arg">input</span> to another format, according to
+/// the value of <span class="arg">form</span>:
+/// format.
+///
+/// <ul>
+/// <li><code>1</code> converts from an input key sequence (as returned by
+/// <a href="#console.readinput">console.readinput</a>) to a friendly key name.
+/// <li><code>2</code> converts from an input key sequence (as returned by
+/// <a href="#console.readinput">console.readinput</a>) to a bindable key
+/// sequence string suitable for use with
+/// <a href="#rl.setkeybinding">rl.setkeybinding</a>.
+/// <li><code>3</code> converts from a key binding sequence (as understood by
+/// <a href="#readline-key-bindings">Readline key bindings</a>) to a friendly
+/// key name.
+/// <li><code>4</code> converts from a key binding sequence (as understood by
+/// <a href="#readline-key-bindings">Readline key bindings</a>) to an input key
+/// sequence.
+/// </ul>
+///
+/// If the input key sequence string cannot be translated then nil is returned.
+static int32 translate_key(lua_State* state)
+{
+    const char* input = checkstring(state, 1);
+    const auto _form = checkinteger(state, 2);
+    if (!input || !_form.isnum())
+        return 0;
+    const int32 form = _form;
+    const int32 len = luaL_len(state, 1);
+
+    char* out = nullptr;
+    uint32 out_len = 0;
+    int32 sort;
+
+    switch (form)
+    {
+    case 1:                             // Input sequence to friendly name.
+    case 2:                             // Input sequence to bindable sequence.
+        translate_keyseq(input, len, &out, (form == 1)/*friendly*/, sort);
+        out_len = out ? strlen(out) : 0;
+        break;
+    case 3:                             // Bindable sequence to friendly name.
+    case 4:                             // Bindable sequence to input sequence.
+        {
+            str_moveable keys;
+            int32 keys_len;
+
+            if (*input == '"')
+            {
+                // "New style" bindable sequence to input sequence.
+                str<> seq;
+                ++input;
+                const char* start = input;
+                while (*input && *input != '"')
+                    ++input;
+                seq.concat(start, uint32(input - start));
+
+                keys.reserve(2 * seq.length());
+                if (rl_translate_keyseq(seq.c_str(), keys.data(), &keys_len))
+                    return 0;
+            }
+            else
+            {
+                // "Old style" bindable sequence to input sequence.
+                keys_len = rl_translate_old_keyseq(input, &out);
+                if (out)
+                {
+                    keys.reserve(keys_len);
+                    memcpy(keys.data(), out, keys_len + 1);
+                    free(out);
+                    out = nullptr;
+                }
+            }
+
+            if (form == 3)
+            {
+                // Input sequence to friendly name.
+                translate_keyseq(keys.c_str(), keys_len, &out, true/*friendly*/, sort);
+            }
+            else
+            {
+                // Copy input sequence to be returned.
+                out = (char*)malloc(keys_len + 1);
+                memcpy(out, keys.c_str(), keys_len + 1);
+            }
+        }
+        break;
+    }
+
+    const bool ok = (out && *out);
+    if (ok)
+        lua_pushstring(state, out);
+
+    free(out);
+    return ok ? 1 : 0;
+}
+
+//------------------------------------------------------------------------------
+/// -name:  bracketpromptcodes
+/// -ver:   1.6.1
+/// -arg:   prompt:string
+/// -ret:   string
+/// Certain Readline configuration variables need for ANSI escape codes to be
+/// bracketed with <code>\1</code> and <code>\2</code>.  This function returns
+/// the <span class="arg">prompt</span> string with that bracketing applied.
+static int32 bracket_prompt_codes(lua_State* state)
+{
+    const char* prompt = checkstring(state, 1);
+    if (!prompt)
+        return 0;
+
+    str<> out;
+    const ecma48_processor_flags flags = ecma48_processor_flags::bracket;
+    ecma48_processor(prompt, &out, nullptr/*cell_count*/, flags);
+
+    lua_pushlstring(state, out.c_str(), out.length());
+    return 1;
+}
+
+//------------------------------------------------------------------------------
+/// -name:  getinputrcfilename
+/// -ver:   1.6.1
+/// -ret:   string|nil, string|nil
+/// Returns the path and file name of the Readline init file that was loaded, if
+/// any.  Also returns the path and file name of the default Readline init file,
+/// if any is present.
+///
+/// See [Init File](#init-file) for more info.
+static int32 get_inputrc_file_name(lua_State* state)
+{
+    static bool s_initialised = !lua_state::is_interpreter();
+    if (!s_initialised)
+    {
+        s_initialised = true;
+
+        int32 id;
+        host_context context;
+        host_get_app_context(id, context);
+        const char* state_dir = context.profile.empty() ? nullptr : context.profile.c_str();
+        const char* default_inputrc = context.default_inputrc.empty() ? nullptr : context.default_inputrc.c_str();
+
+        // Optional undocumented argument:  when called in the standalone Lua
+        // interpreter, passing false disables loading the user's inputrc, but
+        // the default_inputrc (if any) is still loaded.
+        const bool no_user = (lua_isboolean(state, 1) && lua_toboolean(state, 1) == false);
+
+        extern void initialise_readline(const char* shell_name, const char* state_dir, const char* default_inputrc, bool no_user);
+        initialise_readline("clink", state_dir, default_inputrc, no_user);
+    }
+#if 0
+    else
+    {
+        _rl_disable_meta_key();
+        _rl_set_insert_mode(RL_IM_INSERT, 0);
+
+// TODO:  This is insufficient; load_user_inputrc() does more than just that.
+        rl_re_read_init_file(0, 0);
+    }
+#endif
+
+    // May return nullptr, which turns into nil, which is intended.
+    lua_pushstring(state, rl_get_last_init_file());
+
+    int32 id;
+    host_context context;
+    host_get_app_context(id, context);
+    if (context.default_inputrc.empty())
+        lua_pushnil(state);
+    else
+        lua_pushstring(state, context.default_inputrc.c_str());
+
+    return 2;
+}
+
 
 
 //------------------------------------------------------------------------------
-void rl_lua_initialise(lua_state& lua)
+void rl_lua_initialise(lua_state& lua, bool lua_interpreter)
 {
     struct {
+        int32       always;
         const char* name;
         int32       (*method)(lua_State*);
     } methods[] = {
-        { "collapsetilde",          &collapse_tilde },
-        { "expandtilde",            &expand_tilde },
-        { "getvariable",            &get_rl_variable },
-        { "setvariable",            &set_rl_variable },
-        { "isvariabletrue",         &is_rl_variable_true },
-        { "getbinding",             &get_rl_binding },
-        { "setbinding",             &set_rl_binding },
-        { "invokecommand",          &invoke_command },
-        { "getlastcommand",         &get_last_command },
-        { "setmatches",             &set_matches },
-        { "getkeybindings",         &get_key_bindings },
-        { "getcommandbindings",     &get_command_bindings },
-        { "getpromptinfo",          &get_prompt_info },
-        { "insertmode",             &getset_insert_mode },
-        { "ismodifiedline",         &is_modified_line },
-        { "getmatchcolor",          &get_match_color },
-        { "gethistorycount",        &get_history_count },
-        { "gethistoryitems",        &get_history_items },
-        { "describemacro",          &describe_macro },
-        { "needquotes",             &need_quotes },
-        { "islineequal",            &is_line_equal },
+        { 1, "collapsetilde",           &collapse_tilde },
+        { 1, "expandtilde",             &expand_tilde },
+        { 1, "getvariable",             &get_rl_variable },
+        { 1, "setvariable",             &set_rl_variable },
+        { 1, "isvariabletrue",          &is_rl_variable_true },
+        { 1, "getbinding",              &get_rl_binding },
+        { 1, "setbinding",              &set_rl_binding },
+        { 0, "invokecommand",           &invoke_command },
+        { 0, "getlastcommand",          &get_last_command },
+        { 0, "setmatches",              &set_matches },
+        { 1, "getkeybindings",          &get_key_bindings },
+        { 1, "getcommandbindings",      &get_command_bindings },
+        { 0, "getpromptinfo",           &get_prompt_info },
+        { 0, "insertmode",              &getset_insert_mode },
+        { 0, "ismodifiedline",          &is_modified_line },
+        { 1, "getmatchcolor",           &get_match_color },
+        { 0, "gethistorycount",         &get_history_count },
+        { 0, "gethistoryitems",         &get_history_items },
+        { 0, "describemacro",           &describe_macro },
+        { 1, "needquotes",              &need_quotes },
+        { 0, "islineequal",             &is_line_equal },
+        { 1, "translatekey",            &translate_key },
+        { 1, "bracketpromptcodes",      &bracket_prompt_codes },
+        { 1, "getinputrcfilename",      &get_inputrc_file_name },
     };
 
     lua_State* state = lua.get_state();
@@ -1312,9 +1496,12 @@ void rl_lua_initialise(lua_state& lua)
 
     for (const auto& method : methods)
     {
-        lua_pushstring(state, method.name);
-        lua_pushcfunction(state, method.method);
-        lua_rawset(state, -3);
+        if (lua_interpreter ? method.always : method.always >= 0)
+        {
+            lua_pushstring(state, method.name);
+            lua_pushcfunction(state, method.method);
+            lua_rawset(state, -3);
+        }
     }
 
     lua_setglobal(state, "rl");

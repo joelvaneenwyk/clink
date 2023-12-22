@@ -939,6 +939,8 @@ Boolean variables (those that can be set to on or off) are set to on if the valu
 
 Variable | Description
 -|-
+<a name="configactiveregionendcolor"></a>`active-region-end-color` | Not used or needed in Clink; exists only for compatibility when parsing the configuration file.
+<a name="configactiveregionstartcolor"></a>`active-region-start-color` | A string variable that controls the text color and background when displaying the text in the active region (see [enable-active-region](#configenableactiveregion) below).  This string must not take up any physical character positions on the display, so it should consist only of terminal escape sequences.  It is output to the terminal before displaying the text in the active region.  The default value is "\e[0;7m" (reverse video).
 <a name="configbellstyle"></a>`bell-style` | Controls what happens when Readline wants to ring the terminal bell. If set to "none", Readline never rings the bell. If set to "visible" (the default in Clink), Readline uses a visible bell if one is available. If set to "audible", Readline attempts to ring the terminal's bell.
 <a name="configlinkmatchingparen"></a>`blink-matching-paren` | If set to "on", Readline attempts to briefly move the cursor to an opening parenthesis when a closing parenthesis is inserted. The default is "off".
 <a name="configcoloredcompletionprefix"></a>`colored-completion-prefix` | If set to "on", when listing completions, Readline displays the common prefix of the set of possible completions using a different color. The color definitions are taken from the value of the [`%LS_COLORS%`](#completioncolors) environment variable. The default is "off".
@@ -951,7 +953,7 @@ Variable | Description
 <a name="configechocontrolcharacters"></a>`echo-control-characters` | When set to "on", on operating systems that indicate they support it, readline echoes a character corresponding to a signal generated from the keyboard. The default is "on".
 <a name="configeditingmode"></a>`editing-mode` | This controls which Readline input mode is used by default. When set to "emacs" (the default), Readline starts up in Emacs editing mode, where keystrokes are most similar to Emacs. When set to "vi", then `vi` input mode is used.
 <a name="configemacsmodestring"></a>`emacs-mode-string` | If the [`show-mode-in-prompt`](#configshowmodeinprompt) variable is enabled, this string is displayed immediately before the last line of the primary prompt when emacs editing mode is active. The value is expanded like a key binding, so the standard set of meta- and control prefixes and backslash escape sequences is available. Use the "\1" and "\2" escapes to begin and end sequences of non-printing characters, which can be used to embed a terminal control sequence into the mode string. The default is "@".
-<a name="configenablebracketedpaste"></a>`enable-bracketed-paste` | When set to "on", Readline will configure the terminal in a way that will enable it to insert each paste into the editing buffer as a single string of characters, instead of treating each character as if it had been read from the keyboard. This can prevent pasted characters from being interpreted as editing commands. The default is "on".
+<a name="configenableactiveregion"></a>`enable-active-region` | The _point_ is the current cursor position, and _mark_ refers to a saved cursor position (see [Commands For Moving](#commands-for-moving) and [Some Miscellaneous Commands](#some-miscellaneous-commands)).  The text between the point and mark is referred to as the _region_.  When this variable is set to "on", Readline allows certain commands to designate the region as _active_.  When the region is active, Readline highlights the text in the region using the value of the `active-region-start-color`, which defaults to reverse video ("\e[0;7m").  The active region shows the text inserted by bracketed-paste and any matching text found by incremental and non-incremental history searches.  The default is "on".
 <a name="configexpandtilde"></a>`expand-tilde` | If set to "on", tilde expansion is performed when Readline attempts word completion. The default is "off".
 <a name="confighistorypreservepoint"></a>`history-preserve-point` | If set to "on", the history code attempts to place the point (the current cursor position) at the same location on each history line retrieved with [`previous-history`](#rlcmd-previous-history) or [`next-history`](#rlcmd-next-history). The default is "off".
 <a name="confighorizontalscrollmode"></a>`horizontal-scroll-mode` | This variable can be set to either "on" or "off". Setting it to "on" means that the text of the lines being edited will scroll horizontally on a single screen line when they are longer than the width of the screen, instead of wrapping onto a new screen line. This variable is automatically set to "on" for terminals of height 1. By default, this variable is set to "off".
@@ -989,6 +991,7 @@ Variable | Description
 <a name="configcompletionmapcase"></a>`completion-map-case` | Instead, use the <code><a href="#match_ignore_case">match.ignore_case</a></code> Clink setting (see the `relaxed` mode).
 <a name="configconvertmeta"></a>`convert-meta` | Clink requires this to be "on", and sets it to "on".
 <a name="configdisablecompletion"></a>`disable-completion` | If set to "on", Readline will inhibit word completion. Completion characters will be inserted into the line as if they had been mapped to [`self-insert`](#rlcmd-self-insert). The default is "off".
+<a name="configenablebracketedpaste"></a>`enable-bracketed-paste` | Clink doesn't support this. Instead use the [`clink-paste``](#rlcmd-clink-paste) command to perform the equivalent of a bracketed paste.
 <a name="configenablemetakey"></a>`enable-meta-key` | Clink requires this to be "on", and sets it to "on".
 <a name="confighistorysize"></a>`history-size` | Instead, use the <code><a href="#history_max_lines">history.max_lines</a></code> Clink setting.
 <a name="configinputmeta"></a>`input-meta` | Clink requires this to be "on", and sets it to "on".
@@ -1242,6 +1245,7 @@ Command | Key | Description
 <a name="rlcmd-yank-nth-arg"></a>`yank-nth-arg` | <kbd>Alt</kbd>-<kbd>Ctrl</kbd>-<kbd>y</kbd> | Insert the first argument to the previous command (usually the second word on the previous line) at point. With an argument _n_, insert the <em>n</em>th word from the previous command (the words in the previous command begin with word 0). A negative argument inserts the <em>n</em>th word from the end of the previous command. Once the argument _n_ is computed, the argument is extracted as if the "!n" history expansion had been specified.
 <a name="rlcmd-yank-last-arg"></a>`yank-last-arg` | <kbd>Alt</kbd>-<kbd>.</kbd> or <kbd>Alt</kbd>-<kbd>_</kbd> | Insert last argument to the previous command (the last word of the previous history entry). With a numeric argument, behave exactly like [`yank-nth-arg`](#rlcmd-yank-nth-arg). Successive calls to `yank-last-arg` move back through the history list, inserting the last word (or the word specified by the argument to the first call) of each line in turn. Any numeric argument supplied to these successive calls determines the direction to move through the history. A negative argument switches the direction through the history (back or forward). The history expansion facilities are used to extract the last argument, as if the "!$" history expansion had been specified.
 <a name="rlcmd-operate-and-get-next"></a>`operate-and-get-next` | <kbd>Ctrl</kbd>-<kbd>o</kbd> | Accept the current line for return to the calling application as if a newline had been entered, and fetch the next line relative to the current line from the history for editing. A numeric argument, if supplied, specifies the history entry to use instead of the current line.
+<a name="rlcmd-fetch-history"></a>`fetch-history` | | With a numeric argument, fetch that entry from the history list and make it the current line.  Without an argument, move back to the first entry in the history list.
 
 ### Commands For Changing Text
 
@@ -1252,7 +1256,6 @@ Command | Key | Description
 <a name="rlcmd-forward-backward-delete-char"></a>`forward-backward-delete-char` | | Delete the character under the cursor, unless the cursor is at the end of the line, in which case the character behind the cursor is deleted.
 <a name="rlcmd-quoted-insert"></a>`quoted-insert` | <kbd>Ctrl</kbd>-<kbd>q</kbd> | Add the next character typed to the line verbatim. This is how to insert key sequences like <kbd>Ctrl</kbd>-<kbd>h</kbd> or <kbd>Esc</kbd>, for example.
 <a name="rlcmd-self-insert"></a>`self-insert` | <kbd>a</kbd>, <kbd>b</kbd>, <kbd>A</kbd>, <kbd>1</kbd>, <kbd>!</kbd>, etc | Insert the key itself.
-<a name="rlcmd-bracketed-paste-begin"></a>`bracketed-paste-begin` | | This function is intended to be bound to the "bracketed paste" escape sequence sent by some terminals, and such a binding is assigned by default. It allows Readline to insert the pasted text as a single unit without treating each character as if it had been read from the keyboard. The characters are inserted as if each one was bound to [`self-insert`](#rlcmd-self-insert) instead of executing any editing commands.<br/>Bracketed paste sets the region (the characters between point and the mark) to the inserted text. It uses the concept of an active mark: when the mark is active, Readline redisplay uses the terminal's standout mode to denote the region.
 <a name="rlcmd-transpose-chars"></a>`transpose-chars` | <kbd>Ctrl</kbd>-<kbd>t</kbd> | Drag the character before the cursor forward over the character at the cursor, moving the cursor forward as well. If the insertion point is at the end of the line, then this transposes the last two characters of the line. Negative arguments have no effect.
 <a name="rlcmd-transpose-words"></a>`transpose-words` | <kbd>Alt</kbd>-<kbd>t</kbd> | Drag the word before point past the word after point, moving point past that word as well. If the insertion point is at the end of the line, this transposes the last two words on the line.
 <a name="rlcmd-upcase-word"></a>`upcase-word` | <kbd>Alt</kbd>-<kbd>u</kbd> | Uppercase the current (or following) word. With a negative argument, uppercase the previous word, but do not move the cursor.
@@ -1346,9 +1349,10 @@ These other commands are not very useful in Clink, but exist nevertheless.
 
 Command | Key | Description
 -|:-:|-
-<a name="rlcmd-tab-insert"></a>`tab-insert` | <kbd>Alt</kbd>-<kbd>Ctrl</kbd>-<kbd>i</kbd> | Insert a tab character.<br/>Note: this command exists for compatibility with bash, but it isn't useful in Clink because CMD doesn't support entering a tab character in the input line.
+<a name="rlcmd-tab-insert"></a>`tab-insert` | <kbd>Alt</kbd>-<kbd>Ctrl</kbd>-<kbd>i</kbd> | Insert a tab character.<br/>**Note:** this command exists for compatibility with bash, but it isn't useful in Clink because CMD doesn't support entering a tab character in the input line.
 <a name="rlcmd-prefix-meta"></a>`prefix-meta` | | "Metafy" the next character typed. This is for keyboards without an <kbd>Alt</kbd> meta key. Typing a key bound to `prefix-meta` and then <kbd>f</kbd> is equivalent to typing <kbd>Alt</kbd>-<kbd>f</kbd>. By default this is bound to <kbd>Esc</kbd>, but only when the <a href="#terminal_raw_esc">`terminal.raw_esc`</a> Clink setting is enabled.
 <a name="rlcmd-skip-csi-sequence"></a>`skip-csi-sequence` | | This has no effect unless the [`terminal.raw_esc`](#terminal_raw_esc) Clink setting is enabled. Reads enough characters to consume a multi-key sequence such as those defined for keys like <kbd>Home</kbd> and <kbd>End</kbd>. Such sequences begin with a Control Sequence Indicator (CSI), which is `ESC` `[`. If this sequence is bound to "\e[", keys producing such sequences will have no effect unless explicitly bound to a readline command, instead of inserting stray characters into the editing buffer.
+<a name="rlcmd-bracketed-paste-begin"></a>`bracketed-paste-begin` | | This function is intended to be bound to the "bracketed paste" escape sequence sent by some terminals, and such a binding is assigned by default. It allows Readline to insert the pasted text as a single unit without treating each character as if it had been read from the keyboard. The characters are inserted as if each one was bound to [`self-insert`](#rlcmd-self-insert) instead of executing any editing commands.<br/>Bracketed paste sets the region (the characters between point and the mark) to the inserted text. It uses the concept of an active mark: when the mark is active, Readline redisplay uses the terminal's standout mode to denote the region.<br/>**Note:** this command exists for compatibility with bash, but Clink doesn't support bracketed paste. Instead use the [`clink-paste`](#rlcmd-clink-paste) command to perform the equivalent of a bracketed paste.
 
 ### Clink Commands
 
@@ -1448,7 +1452,7 @@ When the [`colored-completion-prefix`](#configcoloredcompletionprefix) [Readline
 
 When [`colored-stats`](#configcoloredstats) is configured to `on`, then the color definitions from `%LS_COLORS%` are used to color file completions according to their file type or extension.    Multiple definitions are separated by colons.  Also, since `%LS_COLORS%` doesn't cover readonly files, hidden files, doskey aliases, or shell commands the [color.readonly](#color_readonly), [color.hidden](#color_hidden), [color.doskey](#color_doskey), and [color.cmd](#color_cmd) Clink settings exist to cover those.
 
-Type|Description|Default
+Types|Description|Default
 -|-|-
 `di`|Directories.|`01;34` (bright blue)
 `ex`|Executable files.|`01;32` (bright green)
@@ -1458,6 +1462,10 @@ Type|Description|Default
 `no`|Normal color.  This is used for anything not covered by one of the other types.<br/>It may be overridden by various other Clink color settings as appropriate depending on the completion type.|
 `or`|Orphaned symlink (the target of the symlink is missing).|
 `so`|Common prefix for possible completions.|`01;35` (bright magenta)
+
+Special extensions|Description|Default
+-|-|-
+`.readline-colored-completion-prefix`|If there is a color definition in `%LS_COLORS%` for the custom suffix `.readline-colored-completion-prefix`, it is used for the common prefix, superseding the `so` type.|
 
 Here is an example where `%LS_COLORS%` defines colors for various types.
 
@@ -2014,7 +2022,7 @@ The function receives five arguments:
 
 The function may return any of the following values:
 - Return `1` to advance to the next argument position _before_ parsing the word (normally the parser advances _after_ parsing a word).  Multiple advances are possible for the same word:  if the "on advance" functions for argument positions 2, 3, and 4 all return `1`, then argument position 5 will parse the word.
-- Return `0` to repeat using same argument position to parse both the current word and the next word.  Multiple repititions are possible for the same argument position:  if the "on advance" function for argument position 3 returns `0` for three words in a row, then all three of the words are parsed using argument position 3.
+- Return `0` to repeat using same argument position to parse both the current word and the next word.  Multiple repetitions are possible for the same argument position:  if the "on advance" function for argument position 3 returns `0` for three words in a row, then all three of the words are parsed using argument position 3.
 - Return `-1` to behave as though [:chaincommand()](#_argmatcher:chaincommand) were used, and start parsing a new command line beginning at `word_index`.  To start at the _next_ word index, see the "[chain next](#chainnextexample)" example below.
 - Return `nil` (either `return nil` or just `return`) to advance to the next argument position _after_ parsing the word (this is the default behavior).
 
@@ -2043,11 +2051,11 @@ clink.argmatcher("start")
 :chaincommand()
 ```
 
-<a name="chainnextexample"/>
+<a name="chainnextexample"></a>
 
 This example demonstrates how to chain on the next word, or also on the current word:
 - `foo chain bar` chains starting at word 3 ("bar").
-- `foo whatever.exe` chains starting at word w ("whatever.exe").
+- `foo whatever.exe` chains starting at word 2 ("whatever.exe").
 
 ```lua
 local function chain_on_word(arg_index, word, word_index, line_state, user_data)
@@ -2823,6 +2831,28 @@ function print_date(rl_buffer)
     rl_buffer:beginoutput()
     print(os.date("%A %B %d, %Y   %I:%M %p"))
 end
+```
+
+#### Example to change how auto-suggested text is inserted
+
+This example creates new commands that change <kbd>Right</kbd> and <kbd>Shift</kbd>-<kbd>Right</kbd> to swap how they behave when auto-suggested text is present.  It also uses Lua to add descriptions for the new commands, and to set key bindings.
+
+```lua
+function cursor_forward_or_insert_full_word(rl_buffer)
+    local at_end = (rl_buffer:getcursor() > rl_buffer:getlength())
+    local command = at_end and "clink-insert-suggested-full-word" or "win-cursor-forward"
+    rl.invokecommand(command)
+end
+rl.describemacro([["luafunc:cursor_forward_or_insert_full_word"]], "Move cursor forward, or at end of line insert the next full suggested word up to a space")
+rl.setbinding([["\e[C"]], [["luafunc:cursor_forward_or_insert_full_word"]])
+
+function cua_forward_char_or_insert_line(rl_buffer)
+    local at_end = (rl_buffer:getcursor() > rl_buffer:getlength())
+    local command = at_end and "clink-insert-suggested-line" or "cua-forward-char"
+    rl.invokecommand(command)
+end
+rl.describemacro([["luafunc:cua_forward_char_or_insert_line"]], "Extend the selection forward one character, or insert the suggested line")
+rl.setbinding([["\e[1;2C"]], [["luafunc:cua_forward_char_or_insert_line"]])
 ```
 
 #### Advanced example

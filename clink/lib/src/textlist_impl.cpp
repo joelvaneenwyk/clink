@@ -356,6 +356,14 @@ void textlist_impl::addl_columns::add_columns(const char* ptr)
 }
 
 //------------------------------------------------------------------------------
+void textlist_impl::addl_columns::erase_row(int32 row)
+{
+    assert(row >= 0 && row < m_rows.size());
+    if (row >= 0 && row < m_rows.size())
+        m_rows.erase(m_rows.begin() + row);
+}
+
+//------------------------------------------------------------------------------
 int32 textlist_impl::addl_columns::calc_widths(int32 available)
 {
     memset(&m_layout_width, 0, sizeof(m_layout_width));
@@ -906,6 +914,10 @@ find:
             int32 move_count = (m_count - 1) - m_index;
             memmove(m_entries + m_index, m_entries + m_index + 1, move_count * sizeof(m_entries[0]));
             m_items.erase(m_items.begin() + m_index);
+            if (m_has_columns)
+                m_columns.erase_row(m_index);
+            if (m_entries)
+                memmove(m_entries + m_index, m_entries + m_index + 1, move_count * sizeof(m_entries[0]));
             if (m_infos)
             {
                 memmove(m_infos + m_index, m_infos + m_index + 1, move_count * sizeof(m_infos[0]));
@@ -1479,9 +1491,16 @@ void textlist_impl::update_display()
                 longest = max<int32>(longest, 40);
             }
 
+            longest = max<int32>(longest, cell_count(m_default_title.c_str()) + 4);
+
             const int32 effective_screen_cols = (m_screen_cols < 40) ? m_screen_cols : max<int32>(40, m_screen_cols - 4);
             const int32 popup_width = min<int32>(longest + 2, effective_screen_cols); // +2 for borders.
             const int32 content_width = popup_width - 2;
+
+            const bool clear_eol = (content_width < m_prev_content_width);
+            if (content_width != m_prev_content_width)
+                m_prev_displayed = -1;
+            m_prev_content_width = content_width;
 
             str<> noescape;
             str<> left;
@@ -1560,6 +1579,8 @@ void textlist_impl::update_display()
                 line << left << m_color.border << "\xe2\x94\x8c";       // ┌
                 line << horzline;                                       // ─
                 line << "\xe2\x94\x90" << "\x1b[m";                     // ┐
+                if (clear_eol && _rl_term_clreol)
+                    line << _rl_term_clreol;
                 m_printer->print(line.c_str(), line.length());
             }
 
@@ -1673,6 +1694,8 @@ void textlist_impl::update_display()
 #endif
                         line << "\xe2\x94\x82";                         // │
                     line << "\x1b[m";
+                    if (clear_eol && _rl_term_clreol)
+                        line << _rl_term_clreol;
                     m_printer->print(line.c_str(), line.length());
                 }
             }
@@ -1688,6 +1711,8 @@ void textlist_impl::update_display()
                 line << left << m_color.border << "\xe2\x94\x94";       // └
                 line << horzline;                                       // ─
                 line << "\xe2\x94\x98" << "\x1b[m";                     // ┘
+                if (clear_eol && _rl_term_clreol)
+                    line << _rl_term_clreol;
                 m_printer->print(line.c_str(), line.length());
             }
 
@@ -1837,6 +1862,8 @@ void textlist_impl::reset()
     m_win_history = false;
     m_has_columns = false;
     m_del_callback = nullptr;
+
+    m_prev_content_width = 0;
 
     m_top = 0;
     m_index = 0;

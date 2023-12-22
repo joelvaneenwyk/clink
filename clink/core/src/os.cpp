@@ -290,7 +290,7 @@ double os::high_resolution_clock::elapsed() const
     if (!QueryPerformanceCounter(&current))
         return -1;
 
-    const long long delta = current.QuadPart - m_start;
+    const int64 delta = current.QuadPart - m_start;
     if (delta < 0)
         return -1;
 
@@ -1540,6 +1540,15 @@ bool run_as_admin(HWND hwnd, const wchar_t* file, const wchar_t* args)
 }
 
 }; // namespace os
+
+
+
+//------------------------------------------------------------------------------
+// Make the clock available to C code (e.g. in Readline).
+extern "C" double os_clock(void)
+{
+    return os::clock();
+}
 
 
 

@@ -54,6 +54,7 @@ extern "C" {
 #include <readline/readline.h>
 #include <readline/rlprivate.h>
 #include <readline/rldefs.h>
+#include <readline/history.h>
 #include <readline/histlib.h>
 #include <readline/keymaps.h>
 #include <readline/xmalloc.h>
@@ -71,10 +72,28 @@ extern Keymap _rl_dispatching_keymap;
 static FILE*        null_stream = (FILE*)1;
 static FILE*        in_stream = (FILE*)2;
 static FILE*        out_stream = (FILE*)3;
-const int32 RL_MORE_INPUT_STATES = ~(RL_STATE_CALLBACK|
-                                     RL_STATE_INITIALIZED|
-                                     RL_STATE_OVERWRITE|
-                                     RL_STATE_VICMDONCE);
+const int32 RL_RESET_STATES = ~(RL_STATE_INITIALIZED|
+                                RL_STATE_TERMPREPPED|
+                                RL_STATE_OVERWRITE|
+                                RL_STATE_CALLBACK|
+                                RL_STATE_VICMDONCE|
+                                RL_STATE_DONE|
+                                RL_STATE_TIMEOUT|
+                                RL_STATE_EOF);
+const int32 RL_MORE_INPUT_STATES = (RL_STATE_READCMD|
+                                    RL_STATE_METANEXT|
+                                    RL_STATE_DISPATCHING|
+                                    RL_STATE_MOREINPUT|
+                                    RL_STATE_ISEARCH|
+                                    RL_STATE_NSEARCH|
+                                    RL_STATE_SEARCH|
+                                    RL_STATE_NUMERICARG|
+                                    RL_STATE_MACROINPUT|
+                                    RL_STATE_MACRODEF|
+                                    RL_STATE_INPUTPENDING|
+                                    RL_STATE_VIMOTION|
+                                    RL_STATE_MULTIKEY|
+                                    RL_STATE_CHARSEARCH);
 const int32 RL_SIMPLE_INPUT_STATES = (RL_STATE_MOREINPUT|
                                       RL_STATE_NSEARCH|
                                       RL_STATE_CHARSEARCH);
@@ -468,7 +487,16 @@ extern "C" int32 input_available_hook(void)
         // timeout is in microseconds (µsec) so divide by 1000 for milliseconds.
         const int32 timeout = rl_set_keyboard_input_timeout(-1);
         if (s_direct_input->available(timeout > 0 ? timeout / 1000 : 0))
+        {
+            // Buffers the available input so it's available to Readline for
+            // reading.  Clink's terminal_read_thunk is designed to require a
+            // loop of select() and read() in order to control how/when/whether
+            // Readline sees input.  It's necessary to call select here so
+            // that win_terminal_in has the input queued, otherwise rl_read_key
+            // won't be able to receive the available input.
+            s_direct_input->select(nullptr, 0);
             return true;
+        }
     }
     return false;
 }
@@ -759,6 +787,7 @@ static const char* s_none_color = nullptr;
 static const char* s_suggestion_color = nullptr;
 static const char* s_histexpand_color = nullptr;
 int32 g_suggestion_offset = -1;
+bool g_suggestion_includes_hint = false;
 
 //------------------------------------------------------------------------------
 // This counts the number of screen lines needed to draw prompt_prefix.
@@ -832,7 +861,7 @@ static char get_face_func(int32 in, int32 active_begin, int32 active_end)
     if (0 <= g_suggestion_offset && g_suggestion_offset <= in)
     {
 #ifdef USE_SUGGESTION_HINT_INLINE
-        if (g_autosuggest_hint.get())
+        if (g_suggestion_includes_hint)
         {
             if (in >= rl_end + IDX_SUGGESTION_LINK_TEXT)
                 return FACE_SUGGESTIONLINK;
@@ -910,7 +939,7 @@ static void puts_face_func(const char* s, const char* face, int32 n)
                 }
                 // fall through
             case FACE_NORMAL:       out << c_normal; break;
-            case FACE_STANDOUT:     out << "\x1b[0;7m"; break;
+            case FACE_STANDOUT:     out << fallback_color(_rl_active_region_start_color, "\x1b[0;7m"); break;
 
             case FACE_INPUT:        out << fallback_color(s_input_color, c_normal); break;
             case FACE_MODMARK:      out << fallback_color(_rl_display_modmark_color, c_normal); break;
@@ -1036,7 +1065,7 @@ void force_signaled_redisplay()
 }
 
 //------------------------------------------------------------------------------
-void hook_display()
+static void hook_display()
 {
     struct clear_want { ~clear_want() { _rl_want_redisplay = false; } } clear_want;
 
@@ -1062,14 +1091,17 @@ void hook_display()
     }
 
     assert(g_autosuggest_enable.get());
+    assert(g_suggestion_offset < 0);
+    assert(!g_suggestion_includes_hint);
 
-    rollback<int32> rb_suggestion(g_suggestion_offset, rl_end);
+    rollback<int32> rb_sugg_offset(g_suggestion_offset, rl_end);
+    rollback<bool> rb_sugg_includes_hint(g_suggestion_includes_hint, false);
     rollback<char*> rb_buf(rl_line_buffer);
     rollback<int32> rb_len(rl_line_buffer_len);
     rollback<int32> rb_end(rl_end);
 
     str_moveable tmp;
-    if (s_suggestion.get_visible(tmp))
+    if (s_suggestion.get_visible(tmp, &g_suggestion_includes_hint))
     {
         rl_line_buffer = tmp.data();
         rl_line_buffer_len = tmp.length();
@@ -1109,6 +1141,23 @@ extern "C" void clear_suggestion()
     s_suggestion.clear();
     if (g_rl_buffer)
         g_rl_buffer->draw();
+}
+
+//------------------------------------------------------------------------------
+bool can_show_suggestion_hint()
+{
+    if (g_autosuggest_hint.get())
+    {
+        int32 type;
+        rl_command_func_t* func = rl_function_of_keyseq_len("\x1b[C", 3, nullptr, &type);
+        if (type == ISFUNC &&
+            (func == win_f1 ||
+             func == clink_forward_char ||
+             func == clink_forward_byte ||
+             func == clink_end_of_line))
+            return true;
+    }
+    return false;
 }
 
 
@@ -1203,6 +1252,24 @@ const char* get_last_prompt()
 static void after_dispatch_hook()
 {
     s_need_collect_words = true;
+}
+
+//------------------------------------------------------------------------------
+static int can_concat_undo_hook(UNDO_LIST* undo, const char* string)
+{
+    const double clock = os::clock();
+    const double delta = clock - undo->clock;
+
+    assert(undo->end > undo->start);
+    const int was_space = whitespace(rl_line_buffer[undo->end - 1]);
+    const int is_space = whitespace(string[0]) && !string[1];
+
+    const int can = ((delta < 0.1) ||
+                     (delta < 5.0 && !(was_space && !is_space) && undo->end - undo->start < 20));
+
+    if (can)
+        undo->clock = clock;
+    return can;
 }
 
 //------------------------------------------------------------------------------
@@ -1596,7 +1663,7 @@ static void postprocess_lcd(char* lcd, const char* text)
 }
 
 //------------------------------------------------------------------------------
-static void load_user_inputrc(const char* state_dir)
+static void load_user_inputrc(const char* state_dir, bool no_user)
 {
 #if defined(PLATFORM_WINDOWS)
     // Remember to update clink_info() if anything changes in here.
@@ -1615,6 +1682,8 @@ static void load_user_inputrc(const char* state_dir)
         "_inputrc",
         "clink_inputrc",
     };
+
+    rollback<int32> rb_load_user_inputrc(_rl_load_user_init_file, !no_user);
 
     for (const char* env_var : env_vars)
     {
@@ -1686,6 +1755,7 @@ static void init_readline_hooks()
     rl_buffer_changing_hook = buffer_changing;
     rl_selection_event_hook = cua_selection_event_hook;
     rl_after_dispatch_hook = after_dispatch_hook;
+    rl_can_concat_undo_hook = can_concat_undo_hook;
 
     // History hooks.
     rl_add_history_hook = host_add_history;
@@ -1719,7 +1789,247 @@ static void init_readline_hooks()
 }
 
 //------------------------------------------------------------------------------
-void initialise_readline(const char* shell_name, const char* state_dir, const char* default_inputrc)
+static bool is_ok_inputrc(const char* default_inputrc)
+{
+    // The "default_inputrc" file was introduced in v1.3.5, but up through
+    // v1.6.0 it wasn't actually loaded properly.  And the provided one had
+    // syntax errors, so the fix in v1.6.1 is careful to avoid loading the
+    // default_inputrc file if it contains only the syntax error lines.
+
+    static const char* const c_oops[] =
+    {
+        "colored-completion-prefix",
+        "colored-stats",
+        "mark-symlinked-directories",
+        "completion-auto-query-items",
+        "history-point-at-end-of-anchored-search",
+        "search-ignore-case",
+    };
+
+    FILE* f = fopen(default_inputrc, "r");
+    if (!f)
+        return true;
+
+    char buffer[128];
+    while (fgets(buffer, sizeof_array(buffer), f))
+    {
+        bool found = false;
+        size_t len = strlen(buffer);
+        while (len && strchr("\r\n", buffer[len - 1]))
+            buffer[--len] = '\0';
+        if (!buffer[0] || strchr("#\r\n", buffer[0]))
+            continue;
+        for (const char* oops : c_oops)
+        {
+            const size_t oops_len = strlen(oops);
+            if (len >= oops_len && strnicmp(oops, buffer, oops_len) == 0)
+            {
+                found = true;
+                break;
+            }
+        }
+        if (!found)
+        {
+            fclose(f);
+            return true;
+        }
+    }
+    fclose(f);
+
+    // The file contains only the specific syntax errors from the original
+    // default_inputrc mistake.  Don't load it.
+    return false;
+}
+
+//------------------------------------------------------------------------------
+static void safe_replace_keymap(Keymap replace, Keymap with)
+{
+    Keymap to, from;
+
+    for (uint32 i = 0; i < KEYMAP_SIZE; i++)
+    {
+        switch (replace[i].type)
+        {
+        case ISKMAP:
+            {
+                Keymap target = FUNCTION_TO_KEYMAP(replace, i);
+                assert(target != vi_movement_keymap);
+                assert(target != vi_insertion_keymap);
+                assert(target != emacs_standard_keymap);
+                if (target && target != emacs_meta_keymap && target != emacs_ctlx_keymap)
+                    rl_free_keymap(target);
+            }
+            break;
+        case ISMACR:
+            free(replace[i].function);
+            break;
+        }
+
+        replace[i].type = with[i].type;
+        switch (with[i].type)
+        {
+        case ISFUNC:
+            replace[i].function = with[i].function;
+            break;
+        case ISKMAP:
+            {
+                from = FUNCTION_TO_KEYMAP(with, i);
+                assert(from != vi_movement_keymap);
+                assert(from != vi_insertion_keymap);
+                assert(from != emacs_standard_keymap);
+                if (from && from != emacs_meta_keymap && from != emacs_ctlx_keymap)
+                {
+                    to = rl_make_bare_keymap();
+                    safe_replace_keymap(to, from);
+                }
+                else
+                {
+                    to = from;
+                }
+                replace[i].function = KEYMAP_TO_FUNCTION(to);
+            }
+            break;
+        case ISMACR:
+            replace[i].function = KEYMAP_TO_FUNCTION(savestring((const char*)with[i].function));
+            break;
+        }
+    }
+}
+
+//------------------------------------------------------------------------------
+static void save_restore_initial_state(const bool restore)
+{
+    // Keymaps.
+
+    static const Keymap saved_vi_movement_keymap = rl_make_bare_keymap();
+    static const Keymap saved_vi_insertion_keymap = rl_make_bare_keymap();
+    static const Keymap saved_emacs_standard_keymap = rl_make_bare_keymap();
+    static const Keymap saved_emacs_meta_keymap = rl_make_bare_keymap();
+    static const Keymap saved_emacs_ctlx_keymap = rl_make_bare_keymap();
+
+    if (!restore)
+    {
+        // Save original state of keymaps.
+        safe_replace_keymap(saved_vi_movement_keymap, vi_movement_keymap);
+        safe_replace_keymap(saved_vi_insertion_keymap, vi_insertion_keymap);
+        safe_replace_keymap(saved_emacs_meta_keymap, emacs_meta_keymap);
+        safe_replace_keymap(saved_emacs_ctlx_keymap, emacs_ctlx_keymap);
+        safe_replace_keymap(saved_emacs_standard_keymap, emacs_standard_keymap);
+    }
+    else
+    {
+        // Restore saved keymaps.
+        safe_replace_keymap(vi_movement_keymap, saved_vi_movement_keymap);
+        safe_replace_keymap(vi_insertion_keymap, saved_vi_insertion_keymap);
+        safe_replace_keymap(emacs_standard_keymap, saved_emacs_standard_keymap);
+        safe_replace_keymap(emacs_meta_keymap, saved_emacs_meta_keymap);
+        safe_replace_keymap(emacs_ctlx_keymap, saved_emacs_ctlx_keymap);
+
+        // Clear global "recent" pointer, since it could have been invalidated
+        // by the operations above.
+        rl_binding_keymap = nullptr;
+    }
+
+    // Config variables.
+
+    static struct {
+        int32* const target;
+        int32 saved;
+    } c_saved_int_vars[] = {
+        { &_rl_bell_preference                          },  // "bell-style"
+        { &_rl_bind_stty_chars                          },  // "bind-tty-special-chars"
+        { &rl_blink_matching_paren                      },  // "blink-matching-paren"
+        //{ &rl_byte_oriented                             },  // "byte-oriented"
+        { &_rl_colored_completion_prefix                },  // "colored-completion-prefix"
+        { &_rl_colored_stats                            },  // "colored-stats"
+        { &rl_completion_auto_query_items               },  // "completion-auto-query-items"
+        { &_rl_completion_columns                       },  // "completion-display-width"
+        { &rl_completion_query_items                    },  // "completion-query-items"
+        { &_rl_completion_case_fold                     },  // "completion-ignore-case"
+        { &_rl_completion_case_map                      },  // "completion-map-case"
+        { &_rl_completion_prefix_display_length         },  // "completion-prefix-display-length"
+        { &_rl_convert_meta_chars_to_ascii              },  // "convert-meta"
+        { &rl_inhibit_completion                        },  // "disable-completion"
+        { &_rl_echo_control_chars                       },  // "echo-control-characters"
+        { &rl_editing_mode                              },  // "editing-mode"
+        { &_rl_enable_active_region                     },  // "enable-active-region"
+        { &_rl_enable_bracketed_paste                   },  // "enable-bracketed-paste"
+        { &_rl_enable_keypad                            },  // "enable-keypad"
+        { &_rl_enable_meta                              },  // "enable-meta-key"
+        { &rl_complete_with_tilde_expansion             },  // "expand-tilde"
+        { &_rl_history_point_at_end_of_anchored_search  },  // "history-point-at-end-of-anchored-search"
+        { &_rl_history_preserve_point                   },  // "history-preserve-point"
+        //{ nullptr                                       },  // "history-size"
+        { &_rl_horizontal_scroll_mode                   },  // "horizontal-scroll-mode"
+        { &_rl_meta_flag                                },  // "input-meta"
+        { &_rl_keyseq_timeout                           },  // "keyseq-timeout"
+        { &_rl_complete_mark_directories                },  // "mark-directories"
+        { &_rl_mark_modified_lines                      },  // "mark-modified-lines"
+        { &_rl_complete_mark_symlink_dirs               },  // "mark-symlinked-directories"
+        { &_rl_match_hidden_files                       },  // "match-hidden-files"
+        { &_rl_menu_complete_prefix_first               },  // "menu-complete-display-prefix"
+        { &_rl_menu_complete_wraparound                 },  // "menu-complete-wraparound"
+        { &_rl_meta_flag                                },  // "meta-flag"
+        { &_rl_output_meta_chars                        },  // "output-meta"
+        { &_rl_page_completions                         },  // "page-completions"
+        { &_rl_bell_preference                          },  // "prefer-visible-bell"
+        { &_rl_print_completions_horizontally           },  // "print-completions-horizontally"
+        { &_rl_revert_all_at_newline                    },  // "revert-all-at-newline"
+        { &_rl_search_case_fold                         },  // "search-ignore-case"
+        { &_rl_complete_show_all                        },  // "show-all-if-ambiguous"
+        { &_rl_complete_show_unmodified                 },  // "show-all-if-unmodified"
+        { &_rl_show_mode_in_prompt                      },  // "show-mode-in-prompt"
+        { &_rl_skip_completed_text                      },  // "skip-completed-text"
+        { &rl_visible_stats                             },  // "visible-stats"
+    };
+
+    for (auto& entry : c_saved_int_vars)
+    {
+        if (!restore)
+        {
+            // Save original value.
+            entry.saved = *entry.target;
+        }
+        else
+        {
+            // Restore saved value.
+            *entry.target = entry.saved;
+        }
+    }
+
+    static struct {
+        char** const target;
+        char* saved;
+    } c_saved_string_vars[] = {
+        { &_rl_active_region_end_color                  },  // "active-region-end-color"
+        { &_rl_active_region_start_color                },  // "active-region-start-color"
+        { &_rl_comment_begin                            },  // "comment-begin"
+        { &_rl_emacs_mode_str                           },  // "emacs-mode-string"
+        { &_rl_isearch_terminators                      },  // "isearch-terminators"
+        //{ nullptr                                       },  // "keymap"
+        { &_rl_vi_cmd_mode_str                          },  // "vi-cmd-mode-string"
+        { &_rl_vi_ins_mode_str                          },  // "vi-ins-mode-string"
+    };
+
+    for (auto& entry : c_saved_string_vars)
+    {
+        if (!restore)
+        {
+            // Save original value.
+            assert(!entry.saved);
+            entry.saved = *entry.target ? savestring(*entry.target) : nullptr;
+        }
+        else
+        {
+            // Restore saved value.
+            free(*entry.target);
+            *entry.target = entry.saved ? savestring(entry.saved) : nullptr;
+        }
+    }
+}
+
+//------------------------------------------------------------------------------
+void initialise_readline(const char* shell_name, const char* state_dir, const char* default_inputrc, bool no_user)
 {
     // Can't give a more specific scope like "Readline initialization", because
     // realloc of some things will use "Readline" and assert on label change.
@@ -1744,12 +2054,14 @@ void initialise_readline(const char* shell_name, const char* state_dir, const ch
 
     // Add commands.
     static bool s_rl_initialized = false;
+    const bool initialized = s_rl_initialized;
     if (!s_rl_initialized)
     {
         s_rl_initialized = true;
 
         static str_moveable s_default_inputrc;
-        s_default_inputrc = default_inputrc;
+        if (is_ok_inputrc(default_inputrc))
+            s_default_inputrc = default_inputrc;
         _rl_default_init_file = s_default_inputrc.empty() ? nullptr : s_default_inputrc.c_str();
 
         init_readline_hooks();
@@ -1844,9 +2156,6 @@ void initialise_readline(const char* shell_name, const char* state_dir, const ch
         // Preemptively replace paste command with one that supports Unicode.
         rl_add_funmap_entry("paste-from-clipboard", clink_paste);
 
-        // Readline forgot to add this command to the funmap.
-        rl_add_funmap_entry("vi-undo", rl_vi_undo);
-
         // Install signal handlers so that Readline doesn't trigger process exit
         // in response to Ctrl+C or Ctrl+Break.
         rl_catch_signals = 1;
@@ -1869,6 +2178,11 @@ void initialise_readline(const char* shell_name, const char* state_dir, const ch
         _rl_bell_preference = VISIBLE_BELL;     // Because audible is annoying.
         rl_complete_with_tilde_expansion = 1;   // Since CMD doesn't understand tilde.
     }
+
+    // Save/restore the original keymap table definitions and original config
+    // variable values so that reloading the inputrc doesn't have lingering
+    // key bindings or config variables values.
+    save_restore_initial_state(initialized);
 
     // Bind extended keys so editing follows Windows' conventions.
     static constexpr const char* const emacs_key_binds[][2] = {
@@ -2040,7 +2354,7 @@ void initialise_readline(const char* shell_name, const char* state_dir, const ch
 #ifdef CLINK_USE_LUA_EDITOR_TESTER
     if (state_dir)
 #endif
-        load_user_inputrc(state_dir);
+        load_user_inputrc(state_dir, no_user);
 
     // Override the effect of any 'set keymap' assignments in the inputrc file.
     // This mimics what rl_initialize() does.
@@ -2356,13 +2670,11 @@ void rl_module::set_prompt(const char* prompt, const char* rprompt, bool redispl
     m_rl_prompt.clear();
     m_rl_rprompt.clear();
 
-    bool force_prompt_color = false;
     {
         str<16> tmp;
         const char* prompt_color = build_color_sequence(g_color_prompt, tmp, true);
         if (prompt_color)
         {
-            force_prompt_color = true;
             m_rl_prompt.format("\x01%s\x02", prompt_color);
             if (rprompt)
                 m_rl_rprompt.format("\x01%s\x02", prompt_color);
@@ -2370,7 +2682,8 @@ void rl_module::set_prompt(const char* prompt, const char* rprompt, bool redispl
     }
 
     ecma48_processor_flags flags = ecma48_processor_flags::bracket;
-    if (get_native_ansi_handler() != ansi_handler::conemu)
+    const ansi_handler native = get_native_ansi_handler();
+    if (native != ansi_handler::conemu && native != ansi_handler::winterminal)
         flags |= ecma48_processor_flags::apply_title;
     ecma48_processor(prompt, &m_rl_prompt, nullptr/*cell_count*/, flags);
     if (rprompt)
@@ -2399,20 +2712,16 @@ void rl_module::set_prompt(const char* prompt, const char* rprompt, bool redispl
         was_visible = show_cursor(false);
         lock_cursor(true);
 
+        // Erase comment row if present.
+        clear_comment_row();
+
         // Count the number of lines the prompt takes to display.
         int32 lines = count_prompt_lines(rl_get_local_prompt_prefix());
 
 #if defined (INCLUDE_CLINK_DISPLAY_READLINE)
         if (use_display_manager())
         {
-            if (lines > 0)
-            {
-                str<16> up;
-                up.format("\r\x1b[%uA", lines);
-                _rl_move_vert(0);
-                g_printer->print(up.c_str(), up.length());
-            }
-            clear_lines = lines + _rl_vis_botlin + 1;
+            clear_lines = lines;
         }
         else
 #endif
@@ -2437,7 +2746,7 @@ void rl_module::set_prompt(const char* prompt, const char* rprompt, bool redispl
     if (redisplay)
     {
         g_prompt_redisplay++;
-        g_display_manager_clean_lines = clear_lines;
+        defer_clear_lines(clear_lines);
         rl_forced_update_display();
 
         lock_cursor(false);
@@ -2646,7 +2955,8 @@ void rl_module::on_end_line()
     _rl_selected_color = nullptr;
 
     // This prevents any partial Readline state leaking from one line to the next
-    rl_readline_state &= ~RL_MORE_INPUT_STATES;
+    assert(!RL_ISSTATE(RL_RESET_STATES));
+    RL_UNSETSTATE(RL_RESET_STATES);
 
     g_rl_buffer = nullptr;
     g_pager = nullptr;
@@ -2750,7 +3060,7 @@ void rl_module::on_input(const input& input, result& result, const context& cont
         virtual int32   begin(bool) override                { assert(false); return 1; }
         virtual int32   end(bool) override                  { assert(false); return 0; }
         virtual bool    available(uint32 timeout) override  { assert(false); return false; }
-        virtual void    select(input_idle*) override        { assert(false); }
+        virtual void    select(input_idle*, uint32) override{ assert(false); }
         virtual int32   read() override                     { if (*data) return *(uint8*)(data++);
                                                               else if (old) return old->read();
                                                               else if (s_direct_input) return s_direct_input->read();
@@ -2765,7 +3075,7 @@ void rl_module::on_input(const input& input, result& result, const context& cont
     // Call Readline's until there's no characters left.
 //#define USE_RESEND_HACK
 #ifdef USE_RESEND_HACK
-    int32 is_inc_searching = rl_readline_state & RL_STATE_ISEARCH;
+    int32 is_inc_searching = RL_ISSTATE(RL_STATE_ISEARCH);
 #endif
     uint32 len = input.len;
     rollback<uint32*> rb_input_len_ptr(s_input_len_ptr, &len);
@@ -2837,7 +3147,7 @@ void rl_module::on_input(const input& input, result& result, const context& cont
     }
 
     // Check if Readline wants more input or if we're done.
-    if (rl_readline_state & RL_MORE_INPUT_STATES)
+    if (RL_ISSTATE(RL_MORE_INPUT_STATES))
     {
         assert(m_prev_group >= 0);
         int32 group = result.set_bind_group(m_catch_group);

@@ -23,6 +23,7 @@
 #include "ellipsify.h"
 #ifdef USE_SUGGESTION_HINT_COMMENTROW
 #include "rl/rl_commands.h"
+#include "rl/rl_suggestions.h"
 #endif
 
 #include <core/base.h>
@@ -85,7 +86,8 @@ extern int _rl_rprompt_shown_len;
 //------------------------------------------------------------------------------
 extern "C" int32 is_CJK_codepage(UINT cp);
 extern int32 g_prompt_redisplay;
-int32 g_display_manager_clean_lines = 0;
+static uint32 s_defer_clear_lines = 0;
+bool g_display_manager_no_comment_row = false;
 
 //------------------------------------------------------------------------------
 static setting_int g_input_rows(
@@ -1361,6 +1363,8 @@ public:
     void                set_history_expansions(history_expansion* list=nullptr);
     void                measure(measure_columns& mc);
     bool                get_horz_offset(int32& bytes, int32& column) const;
+    bool                has_comment_row() const;
+    void                clear_comment_row();
 
 private:
     void                update_line(int32 i, const display_line* o, const display_line* d, bool has_rprompt);
@@ -1449,14 +1453,7 @@ void display_manager::end_prompt_lf()
     // prompt and input line without the scroll constraints?
 
     // Erase comment row if present.
-    if (m_curr.get_comment_row())
-    {
-        _rl_move_vert(_rl_vis_botlin + 1);
-        _rl_cr();
-        _rl_last_c_pos = 0;
-        _rl_clear_to_eol(0);
-        m_curr.clear_comment_row();
-    }
+    clear_comment_row();
 
     // If the cursor is the only thing on an otherwise-blank last line,
     // compensate so we don't print an extra CRLF.
@@ -1509,7 +1506,9 @@ void display_manager::end_prompt_lf()
 
     // Print CRLF to end the prompt.
     rl_crlf();
+    _rl_last_v_pos = 0;
     _rl_last_c_pos = 0;
+    _rl_vis_botlin = 0;
     rl_fflush_function(_rl_out_stream);
     rl_display_fixed++;
 }
@@ -1546,7 +1545,9 @@ void display_manager::display()
     }
 
     // Is history expansion preview desired?
-    const bool want_histexpand_preview = (g_history_show_preview.get() && g_history_autoexpand.get());
+    const bool want_histexpand_preview = (!g_display_manager_no_comment_row &&
+                                          g_history_show_preview.get() &&
+                                          g_history_autoexpand.get());
 
     // Max number of rows to use when displaying the input line.
     uint32 max_rows = g_input_rows.get();
@@ -1566,19 +1567,19 @@ void display_manager::display()
     bool forced_display = rl_get_forced_display();
     rl_set_forced_display(false);
 
-    if (g_display_manager_clean_lines > 0)
+    if (s_defer_clear_lines > 0)
     {
         // Clear the lines within the display_accumulator scope.
-        for (int32 lines = g_display_manager_clean_lines; lines--;)
+        for (int32 lines = s_defer_clear_lines; lines--;)
             rl_fwrite_function(_rl_out_stream, "\x1b[2K\n", lines ? 5 : 4);
         // Go back up to where the cursor was before clearing lines.
-        if (g_display_manager_clean_lines > 1)
+        if (s_defer_clear_lines > 1)
         {
             str<16> tmp;
-            tmp.format("\x1b[%uA", g_display_manager_clean_lines - 1);
+            tmp.format("\x1b[%uA", s_defer_clear_lines - 1);
             rl_fwrite_function(_rl_out_stream, tmp.c_str(), tmp.length());
         }
-        g_display_manager_clean_lines = 0;
+        s_defer_clear_lines = 0;
     }
 
     if (prompt || rl_display_prompt == rl_prompt)
@@ -1873,26 +1874,21 @@ void display_manager::display()
 #define m_next __use_next_instead__
         }
 #ifdef USE_SUGGESTION_HINT_COMMENTROW
-        else if (next->has_suggestion() && g_autosuggest_hint.get())
+        else if (next->has_suggestion() && can_show_suggestion_hint())
         {
-            int32 type;
-            rl_command_func_t* func = rl_function_of_keyseq_len("\x1b[C", 3, nullptr, &type);
-            if (func == clink_forward_char || func == win_f1)
-            {
-                static const char c_reverse[] = "\x1b[7m";
-                static const char c_unreverse[] = "\x1b[27m";
-                static const char c_hyperlink[] = "\x1b]8;;";
-                static const char c_doc_autosuggest[] = DOC_HYPERLINK_AUTOSUGGEST;
-                static const char c_BEL[] = "\a";
+            static const char c_reverse[] = "\x1b[7m";
+            static const char c_unreverse[] = "\x1b[27m";
+            static const char c_hyperlink[] = "\x1b]8;;";
+            static const char c_doc_autosuggest[] = DOC_HYPERLINK_AUTOSUGGEST;
+            static const char c_BEL[] = "\a";
 
-                str_moveable in;
-                in << c_reverse << "Right" << c_unreverse << "=";
-                in << c_hyperlink << c_doc_autosuggest << c_BEL << "Accept Suggestion" << c_hyperlink << c_BEL;
+            str_moveable in;
+            in << c_reverse << "Right" << c_unreverse << "=";
+            in << c_hyperlink << c_doc_autosuggest << c_BEL << "Accept Suggestion" << c_hyperlink << c_BEL;
 
 #undef m_next
-                m_next.set_comment_row(std::move(in), comment_row_type::autosuggest);
+            m_next.set_comment_row(std::move(in), comment_row_type::autosuggest);
 #define m_next __use_next_instead__
-            }
         }
 #endif
     }
@@ -2074,6 +2070,25 @@ void display_manager::measure(measure_columns& mc)
 bool display_manager::get_horz_offset(int32& bytes, int32& column) const
 {
     return m_curr.get_horz_offset(bytes, column);
+}
+
+//------------------------------------------------------------------------------
+bool display_manager::has_comment_row() const
+{
+    return !!*m_curr.get_comment_row();
+}
+
+//------------------------------------------------------------------------------
+void display_manager::clear_comment_row()
+{
+    if (*m_curr.get_comment_row())
+    {
+        _rl_move_vert(_rl_vis_botlin + 1);
+        _rl_cr();
+        _rl_last_c_pos = 0;
+        _rl_clear_to_eol(0);
+        m_curr.clear_comment_row();
+    }
 }
 
 //------------------------------------------------------------------------------
@@ -2472,6 +2487,32 @@ bool use_display_manager()
 #endif
     return s_use_display_manager;
 }
+
+//------------------------------------------------------------------------------
+#if defined (INCLUDE_CLINK_DISPLAY_READLINE)
+void clear_comment_row()
+{
+    s_display_manager.clear_comment_row();
+}
+#endif
+
+//------------------------------------------------------------------------------
+#if defined (INCLUDE_CLINK_DISPLAY_READLINE)
+void defer_clear_lines(uint32 prompt_lines)
+{
+    str<16> up;
+    if (prompt_lines > 0)
+        up.format("\r\x1b[%uA", prompt_lines);
+    else
+        up = "\r";
+
+    _rl_move_vert(0);
+    rl_fwrite_function(_rl_out_stream, up.c_str(), up.length());
+    _rl_last_c_pos = 0;
+
+    s_defer_clear_lines = prompt_lines + _rl_vis_botlin + 1;
+}
+#endif
 
 //------------------------------------------------------------------------------
 extern "C" void host_on_new_line()

@@ -7,6 +7,8 @@ _This todo list describes ChrisAnt996's current intended roadmap for Clink's fut
 ## High Priority
 
 ## Normal Priority
+- Some wizard for interactively binding/unbinding keys and changing init file settings; can write back to the .inputrc file.
+- Some wizard for interactively viewing/modifying color settings.
 
 ## Low Priority
 - Open issue in Terminal repo about bugs in the new shell integration in v1.18.
@@ -23,11 +25,6 @@ _This todo list describes ChrisAnt996's current intended roadmap for Clink's fut
       - Precedence for "or", "and", "xor" can be simply left to right (like in 4Dos/4NT/TakeCommand etc).
       - Automatically optimize rule evaluation by processing CFLAG checks before pattern checks in any group of "or" clauses.
       - If parsing is fast enough, then maybe don't even bother "compiling" the rules, and simply parse for every entry?
-- Maybe consider a way to allow piping matches and help into `less` or other external pager?  It would break/interfere with the intended flow and behavior of the `complete` command and it might not work with ANSI codes.  But in [clink-completions#500](https://github.com/vladimir-kotikov/clink-completions/issues/178) a user cited a link where someone assumed that bash would use an external pager like `less`.
-- The `:` and `=` parsing has a side effect that flags like `-f`_`file`_ are ambiguous: since parsing happens independently from argmatchers, `-fc:\file` could be `-f` and `c:\file` or it could be `-fc:` and `\file`.
-  - Revisit the possibility of allowing `line_state` to be mutable and argmatchers adjusting it as they parse the input line?  _No; too messy.  E.g. splitting `"-fc:\foo bar"` gets weird because quoting encloses **two adjacent** words._
-  - But an important benefit of the current implementation is that `program_with_no_argmatcher --unknown-flag:filename` is able to do filename completion on `filename`.
-  - Maybe a better solution would be to let argmatchers specify `getopt`-like parsing rules.  Then an argmatcher parser could split the word into `-f` and `c:\file`, and the second part could be put into a "pending word" variable which the parser could check before trying to advance the parser's word index?  And could even potentially recognize `-az` as two valid flags `-a` and `-z` when appropriate (and if either flag is unknown, then color the whole word as unknown).
 - Allow removing event handlers, e.g. `clink.onbeginedit(func)` to add an event handler, and something like `clink.onbeginedit(func, false)` or `clink.removebeginedit(func)` to remove one?  Or maybe return a function that can be called to remove it, e.g. like below (but make sure repeated calls become no-ops).  The `clink-diagnostics` command would need to still show any removed event handlers until the next beginedit.  But it gets tricky if `func` is already registered -- should the new redundant registration's removal function be able to remove the pre-existing event handler?
     ```
     local remove = clink.onbeginedit(func) -- add func
@@ -36,6 +33,7 @@ _This todo list describes ChrisAnt996's current intended roadmap for Clink's fut
 - Allow Lua to set the comment row for the input line?
   - Need a simple and reliable trigger for clearing the comment row later; maybe `clink.onaftercommand()` is enough?
   - Don't add this ability unless there is a way to ensure comment rows don't get "leaked" and continue showing up past when they were relevant.
+  - Argmatcher could maybe automatically show syntax hints for the current word.
 - Make a reusable wrapper mechanism to create coroutine-friendly threaded async operations in Lua?
 
 ## Follow Up
@@ -102,6 +100,7 @@ _This todo list describes ChrisAnt996's current intended roadmap for Clink's fut
 - [#369](https://github.com/chrisant996/clink/issues/369) and [mridgers#531](https://github.com/mridgers/clink/issues/531) anti-malware suites sometimes think Clink is malicious _[This is likely because of the use of CreateRemoteThread and/or hooking OS APIs.  There's no way around that.  Signing the binaries might reduce that, but that's financially expensive and there's no way for an indepedent author to get an EV code signing certificate even if they were willing to pay the thousands of dollars per year.]_
 - [Terminal #10191](https://github.com/microsoft/terminal/issues/10191#issuecomment-897345862) Microsoft Terminal does not allow a console application to know about or access the scrollback history, nor to scroll the screen.  It blocks Clink's scrolling commands, and also the `console.findline()` function and everything else that relies on access to the scrollback history.
 - The auto-updater settings are stored in the profile.  That makes it more cumbersome to control the auto-updater settings if you use multiple Clink profiles.  However, it makes it possible to control the auto-updater settings separately in "portable installs" (e.g. on a USB memory stick).
+- Lua code can check if there is real console input available, and can read real console input.  But there is no way for Lua code to check whether there is any input queued for Readline (pending input, pushed input, macro text).  That probably makes sense, since there is (correctly) no way for Lua code to read input queued for Readline.
 
 ## Mystery
 - Once in a while raw mouse input sequences spuriously show up in the edit line; have only noticed it when the CMD window did not have focus at the time.  _[Not fixed by bb870fc494.]_ _[Have not seen for many weeks.]_ _[Likely due to `ENABLE_VIRTUAL_TERMINAL_INPUT` and largely mitigated by a8d80b752a.]_ _[Root cause is https://github.com/microsoft/terminal/issues/15711.]_
@@ -110,6 +109,11 @@ _This todo list describes ChrisAnt996's current intended roadmap for Clink's fut
 - Windows 10.0.19042.630 seems to have problems when using WriteConsoleW with ANSI escape codes in a powerline prompt in a git repo.  But Windows 10.0.19041.630 doesn't.
 
 ## Punt
+- The `:` and `=` parsing has a side effect that flags like `-f`_`file`_ are ambiguous: since parsing happens independently from argmatchers, `-fc:\file` could be `-f` and `c:\file` or it could be `-fc:` and `\file`.  _[Too much complexity for too little benefit too rarely.]_
+  - Revisit the possibility of allowing `line_state` to be mutable and argmatchers adjusting it as they parse the input line?  _No; too messy.  E.g. splitting `"-fc:\foo bar"` gets weird because quoting encloses **two adjacent** words._
+  - But an important benefit of the current implementation is that `program_with_no_argmatcher --unknown-flag:filename` is able to do filename completion on `filename`.
+  - Maybe a better solution would be to let argmatchers specify `getopt`-like parsing rules.  Then an argmatcher parser could split the word into `-f` and `c:\file`, and the second part could be put into a "pending word" variable which the parser could check before trying to advance the parser's word index?  And could even potentially recognize `-az` as two valid flags `-a` and `-z` when appropriate (and if either flag is unknown, then color the whole word as unknown).
+- Maybe consider a way to allow piping matches and help into `less` or other external pager?  It would break/interfere with the intended flow and behavior of the `complete` command and it might not work with ANSI codes.  But in [clink-completions#500](https://github.com/vladimir-kotikov/clink-completions/issues/178) a user cited a link where someone assumed that bash would use an external pager like `less`.  _[No; it would break how completion is designed to work, and ANSI escape codes couldn't be used.]_
 - CMD sets `=ExitCode` = the exit code from running a program.  But it doesn't set the envvar for various other things that update CMD's internal exit code variable.  So, Clink's tempfile dance to get `%ERRORLEVEL%` is still necessary.
 - A reliable way for scripts to tell whether they're loaded in `clink set` versus in `cmd`.  _[No.  The only case reported that needed this was trying to access key bindings when the script was loaded, and due to a bug in `rl.getkeybindings()` Clink crashed.  The crash has been fixed (now it returns an empty table instead), and the script is better implemented using `clink.oninject()` anyway.]_
 - Provide some kind of "line editor tester" in the `clink lua` interpreter to facilitate writing unit tests for argmatchers?  _[No.  Too many fundamental incompatibilities with the rest of the code.  Completion script authors can do unit testing of their own code, but trying to do end-to-end testing of Clink itself from within Clink itself with being integrated with CMD?  Hard no.]_

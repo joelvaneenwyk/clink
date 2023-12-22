@@ -4,6 +4,7 @@
 #include "pch.h"
 #include "lua_state.h"
 #include "lua_script_loader.h"
+#include "lua_task_manager.h"
 #include "rl_buffer_lua.h"
 #include "line_state_lua.h"
 
@@ -85,7 +86,7 @@ void os_lua_initialise(lua_state&);
 void io_lua_initialise(lua_state&);
 void console_lua_initialise(lua_state&);
 void path_lua_initialise(lua_state&);
-void rl_lua_initialise(lua_state&);
+void rl_lua_initialise(lua_state&, bool lua_interpreter=false);
 void settings_lua_initialise(lua_state&);
 void string_lua_initialise(lua_state&);
 void unicode_lua_initialise(lua_state&);
@@ -246,8 +247,7 @@ void lua_state::initialise(lua_state_flags flags)
     io_lua_initialise(self);
     console_lua_initialise(self);
     path_lua_initialise(self);
-    if (!interpreter)
-        rl_lua_initialise(self);
+    rl_lua_initialise(self, interpreter);
     settings_lua_initialise(self);
     string_lua_initialise(self);
     unicode_lua_initialise(self);
@@ -282,6 +282,8 @@ void lua_state::shutdown()
 {
     if (m_state == nullptr)
         return;
+
+    shutdown_task_manager(false/*final*/);
 
     lua_close(m_state);
     m_state = nullptr;

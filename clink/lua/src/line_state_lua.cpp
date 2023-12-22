@@ -19,6 +19,8 @@ const line_state_lua::method line_state_lua::c_methods[] = {
     { "getwordinfo",            &get_word_info },
     { "getword",                &get_word },
     { "getendword",             &get_end_word },
+    { "getrangeoffset",         &get_range_offset },
+    { "getrangelength",         &get_range_length },
     // UNDOCUMENTED; internal use only.
     { "_shift",                 &shift },
     { "_reset_shift",           &reset_shift },
@@ -48,7 +50,7 @@ line_state_copy::line_state_copy(const line_state& line)
 {
     m_buffer.concat(line.get_line(), line.get_length());
     m_words = line.get_words(); // Deep copy.
-    m_line = new line_state(m_buffer.c_str(), m_buffer.length(), line.get_cursor(), line.get_command_offset(), m_words);
+    m_line = new line_state(m_buffer.c_str(), m_buffer.length(), line.get_cursor(), line.get_command_offset(), line.get_range_offset(), line.get_range_length(), m_words);
 }
 
 //------------------------------------------------------------------------------
@@ -134,8 +136,9 @@ int32 line_state_lua::get_cursor(lua_State* state)
 /// Returns the offset to the start of the delimited command in the line that's
 /// being effectively edited. Note that this may not be the offset of the first
 /// command of the line unquoted as whitespace isn't considered for words.
-/// -show:  -- Given the following line; abc&123
-/// -show:  -- where commands are separated by & symbols.
+/// -show:  -- Given the following line;  abc&123
+/// -show:  --                                ^
+/// -show:  -- In the line_state for the second command;
 /// -show:  line_state:getcommandoffset() == 5
 ///
 /// The command offset points to the beginning of the command, but that might be
@@ -143,8 +146,9 @@ int32 line_state_lua::get_cursor(lua_State* state)
 /// at the beginning of a line; it disables doskey alias expansion.  So, if the
 /// command offset points at a space, then you know the first word will not be
 /// treated as a doskey alias.
-/// -show:  -- Given the following line; abc&  123
-/// -show:  -- where commands are separated by & symbols.
+/// -show:  -- Given the following line;  abc&  123
+/// -show:  --                                 ^
+/// -show:  -- In the line_state for the second command;
 /// -show:  line_state:getcommandoffset() == 6
 int32 line_state_lua::get_command_offset(lua_State* state)
 {
@@ -170,7 +174,7 @@ int32 line_state_lua::get_command_offset(lua_State* state)
 /// Returns the index of the command word. Usually the index is 1, but if a
 /// redirection symbol occurs before the command name then the index can be
 /// greater than 1.
-/// -show:  -- Given the following line; >x abc
+/// -show:  -- Given the following line;  >x abc
 /// -show:  -- the first word is "x" and is an argument to the redirection symbol,
 /// -show:  -- and the second word is "abc" and is the command word.
 /// -show:  line_state:getcommandwordindex() == 2
@@ -223,11 +227,11 @@ int32 line_state_lua::get_word_count(lua_State* state)
 /// -show:  -- t.redir      [boolean | nil] true if the word is a redirection arg, otherwise nil.
 int32 line_state_lua::get_word_info(lua_State* state)
 {
-    if (!lua_isnumber(state, 1))
+    if (!lua_isnumber(state, LUA_SELF + 1))
         return 0;
 
     const std::vector<word>& words = m_line->get_words();
-    uint32 index = int32(lua_tointeger(state, 1)) - 1 + m_shift;
+    uint32 index = int32(lua_tointeger(state, LUA_SELF + 1)) - 1 + m_shift;
     if (index >= words.size())
         return 0;
 
@@ -290,11 +294,11 @@ int32 line_state_lua::get_word_info(lua_State* state)
 /// could be garbled.
 int32 line_state_lua::get_word(lua_State* state)
 {
-    if (!lua_isnumber(state, 1))
+    if (!lua_isnumber(state, LUA_SELF + 1))
         return 0;
 
     str<32> word;
-    uint32 index = int32(lua_tointeger(state, 1)) - 1;
+    uint32 index = int32(lua_tointeger(state, LUA_SELF + 1)) - 1;
     m_line->get_word(m_shift + index, word);
     lua_pushlstring(state, word.c_str(), word.length());
     return 1;
@@ -329,10 +333,60 @@ int32 line_state_lua::get_end_word(lua_State* state)
 }
 
 //------------------------------------------------------------------------------
+/// -name:  line_state:getrangeoffset
+/// -ver:   1.6.1
+/// -ret:   integer
+/// Each line_state describes a range of text in a line.  This function returns
+/// the offset to the start of the range described by this line_state.
+///
+/// For all commands after the first command in a line, the first space (if any)
+/// is not part of the range.
+/// See [line_state:getcommandoffset](#line_state:getcommandoffset) for details.
+/// -show:  -- Given a line_state for the 2nd command in;  abc & ( @where   >nul  )  & xyz
+/// -show:  line_state:getrangeoffset() == 9           --          ^
+/// -show:  line_state:getcommandoffset() == 10        -            ^
+/// -show:  line_state:getrangelength() == 15          --          <------------->
+/// -show:
+/// -show:  -- Given a line_state for the 2nd command in;  abc & (   @ where   >nul  )  & xyz
+/// -show:  line_state:getrangeoffset() == 9           --          ^
+/// -show:  line_state:getcommandoffset() == 13        --              ^
+/// -show:  line_state:getrangelength() == 18          --          <---------------->
+int32 line_state_lua::get_range_offset(lua_State* state)
+{
+    lua_pushinteger(state, m_line->get_range_offset() + 1);
+    return 1;
+}
+
+//------------------------------------------------------------------------------
+/// -name:  line_state:getrangelength
+/// -ver:   1.6.1
+/// -ret:   integer
+/// Each line_state describes a range of text in a line.  This function returns
+/// the length of the range described by this line_state.
+///
+/// For all commands after the first command in a line, the first space (if any)
+/// is not part of the range.
+/// See [line_state:getcommandoffset](#line_state:getcommandoffset) for details.
+/// -show:  -- Given a line_state for the 2nd command in;  abc & ( @where   >nul  )  & xyz
+/// -show:  line_state:getrangeoffset() == 9           --          ^
+/// -show:  line_state:getcommandoffset() == 10        --           ^
+/// -show:  line_state:getrangelength() == 15          --          <------------->
+/// -show:
+/// -show:  -- Given a line_state for the 2nd command in;  abc & (   @ where   >nul  )  & xyz
+/// -show:  line_state:getrangeoffset() == 9           --          ^
+/// -show:  line_state:getcommandoffset() == 13        --              ^
+/// -show:  line_state:getrangelength() == 18          --          <---------------->
+int32 line_state_lua::get_range_length(lua_State* state)
+{
+    lua_pushinteger(state, m_line->get_range_length());
+    return 1;
+}
+
+//------------------------------------------------------------------------------
 // UNDOCUMENTED; internal use only.
 int32 line_state_lua::shift(lua_State* state)
 {
-    uint32 num = optinteger(state, 1, 0);
+    uint32 num = optinteger(state, LUA_SELF + 1, 0);
 
     if (num > 0)
     {
@@ -381,14 +435,14 @@ inline bool is_unbreakchar(const char* unbreakchars, const char* line, uint32 le
 // UNDOCUMENTED; internal use only.
 int32 line_state_lua::unbreak(lua_State* state)
 {
-    const auto _index = checkinteger(state, 1);
-    const char* unbreakchars = checkstring(state, 2);
+    const auto _index = checkinteger(state, LUA_SELF + 1);
+    const char* unbreakchars = checkstring(state, LUA_SELF + 2);
     if (!_index.isnum() || !unbreakchars)
         return 0;
     if (!*unbreakchars) // No-op.
         return 0;
     if (!validate_unbreakchars(unbreakchars))
-        return luaL_argerror(state, 2, "must contain only ASCII characters");
+        return luaL_argerror(state, LUA_SELF + 2, "must contain only ASCII characters");
     const uint32 index = _index - 1 + m_shift;
 
     const std::vector<word>& words = m_line->get_words();
@@ -426,7 +480,7 @@ int32 line_state_lua::unbreak(lua_State* state)
 // UNDOCUMENTED; internal use only.
 int32 line_state_lua::overwrite_from(lua_State* state)
 {
-    line_state_lua* from = check(state, 1);
+    line_state_lua* from = check(state, LUA_SELF + 1);
     if (!from)
         return 0;
 

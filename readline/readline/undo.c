@@ -1,6 +1,6 @@
 /* undo.c - manage list of changes to lines, offering opportunity to undo them */
 
-/* Copyright (C) 1987-2017 Free Software Foundation, Inc.
+/* Copyright (C) 1987-2021 Free Software Foundation, Inc.
 
    This file is part of the GNU Readline Library (Readline), a library
    for reading lines of text with interactive input and history editing.      
@@ -49,9 +49,7 @@
 #include "rlprivate.h"
 #include "xmalloc.h"
 
-extern void _hs_replace_history_data PARAMS((int, histdata_t *, histdata_t *));
-
-extern HIST_ENTRY *_rl_saved_line_for_history;
+#include "histlib.h"
 
 /* Non-zero tells rl_delete_text and rl_insert_text to not add to
    the undo list. */
@@ -79,6 +77,9 @@ alloc_undo_entry (enum undo_code what, int start, int end, char *text)
   temp->start = start;
   temp->end = end;
   temp->text = text;
+/* begin_clink_change */
+  temp->clock = os_clock();
+/* end_clink_change */
 
   temp->next = (UNDO_LIST *)NULL;
   return temp;
@@ -133,6 +134,9 @@ _rl_copy_undo_entry (UNDO_LIST *entry)
 
   new = alloc_undo_entry (entry->what, entry->start, entry->end, (char *)NULL);
   new->text = entry->text ? savestring (entry->text) : 0;
+/* begin_clink_change */
+  new->clock = entry->clock;
+/* end_clink_change */
   return new;
 }
 

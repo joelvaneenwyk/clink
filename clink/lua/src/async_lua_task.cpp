@@ -3,8 +3,10 @@
 
 #include "pch.h"
 #include "lua_state.h"
+#include "lua_input_idle.h"
 #include "async_lua_task.h"
 
+#include <core/os.h>
 #include <core/str_unordered_set.h>
 #include <core/debugheap.h>
 #include <terminal/printer.h>
@@ -21,7 +23,7 @@ class task_manager
 
 public:
                             task_manager();
-    void                    shutdown();
+    void                    shutdown(bool final);
     std::shared_ptr<async_lua_task> find(const char* key) const;
     bool                    add(const std::shared_ptr<async_lua_task>& task);
     void                    on_idle(lua_state& lua);
@@ -101,7 +103,9 @@ void task_manager::on_idle(lua_state& lua)
         {
             iter->second->run_callback(lua);
             iter->second->detach();
-            m_unref_callbacks.push_back(iter->second->take_callback());
+            auto callback = iter->second->take_callback();
+            if (callback)
+                m_unref_callbacks.push_back(std::move(callback));
             iter = m_map.erase(iter);
         }
     }
@@ -128,8 +132,12 @@ void task_manager::end_line()
         {
             dbg_ignore_scope(snapshot, "task_manager");
             iter->second->detach();
-            m_unref_callbacks.push_back(iter->second->take_callback());
-            unref = true;
+            auto callback = iter->second->take_callback();
+            if (callback)
+            {
+                m_unref_callbacks.push_back(std::move(callback));
+                unref = true;
+            }
             iter = m_map.erase(iter);
         }
     }
@@ -184,12 +192,13 @@ bool task_manager::usable() const
 }
 
 //------------------------------------------------------------------------------
-void task_manager::shutdown()
+void task_manager::shutdown(bool final)
 {
     if (m_zombie)
         return;
 
-    m_zombie = true;
+    if (final)
+        m_zombie = true;
 
     for (auto &iter : m_map)
     {
@@ -219,8 +228,19 @@ async_lua_task::~async_lua_task()
 }
 
 //------------------------------------------------------------------------------
+void async_lua_task::set_asyncyield(async_yield_lua* asyncyield)
+{
+    assert(!m_callback_ref);
+// TODO: The underlying m_asyncyield object is garbage collected.  Is the
+// lifetime scoped correctly so that async_lua_task never outlives it?  I
+// don't think so...!
+    m_asyncyield = asyncyield;
+}
+
+//------------------------------------------------------------------------------
 void async_lua_task::set_callback(const std::shared_ptr<callback_ref>& callback)
 {
+    assert(!m_asyncyield);
     m_callback_ref = callback;
     m_run_callback = true;
 }
@@ -264,9 +284,25 @@ void async_lua_task::cancel()
 }
 
 //------------------------------------------------------------------------------
+void async_lua_task::wake_asyncyield() const
+{
+    if (!m_asyncyield)
+        return;
+
+    // Signal the coroutine is ready to resume.
+    m_asyncyield->set_ready();
+
+    // Signal to run idle.
+    HANDLE h = lua_input_idle::get_idle_event();
+    if (h)
+        SetEvent(h);
+}
+
+//------------------------------------------------------------------------------
 void async_lua_task::start()
 {
-    m_thread = std::make_unique<std::thread>(&proc, this);
+    auto task = shared_from_this();
+    m_thread = std::make_unique<std::thread>(&proc, std::move(task));
 }
 
 //------------------------------------------------------------------------------
@@ -281,7 +317,7 @@ void async_lua_task::detach()
 }
 
 //------------------------------------------------------------------------------
-void async_lua_task::proc(async_lua_task* task)
+void async_lua_task::proc(std::shared_ptr<async_lua_task> task)
 {
     task->do_work();
     task->m_is_complete = true;
@@ -289,6 +325,60 @@ void async_lua_task::proc(async_lua_task* task)
     SetEvent(task->m_event);
     SetEvent(get_task_manager_event());
 }
+
+
+
+//------------------------------------------------------------------------------
+async_yield_lua::async_yield_lua(const char* name, uint32 timeout)
+: m_name(name)
+{
+    if (timeout)
+        m_expiration = os::clock() + double(timeout) / 1000;
+}
+
+//------------------------------------------------------------------------------
+async_yield_lua::~async_yield_lua()
+{
+}
+
+//------------------------------------------------------------------------------
+int32 async_yield_lua::get_name(lua_State* state)
+{
+    lua_pushlstring(state, m_name.c_str(), m_name.length());
+    return 1;
+}
+
+//------------------------------------------------------------------------------
+int32 async_yield_lua::get_expiration(lua_State* state)
+{
+    if (m_expiration > 0)
+        lua_pushnumber(state, m_expiration);
+    else
+        lua_pushnil(state);
+    return 1;
+}
+
+//------------------------------------------------------------------------------
+int32 async_yield_lua::ready(lua_State* state)
+{
+    lua_pushboolean(state, m_ready);
+    return 1;
+}
+
+//------------------------------------------------------------------------------
+bool async_yield_lua::is_expired() const
+{
+    return (m_expiration > 0 && m_expiration <= os::clock());
+}
+
+//------------------------------------------------------------------------------
+const char* const async_yield_lua::c_name = "async_yield_lua";
+const async_yield_lua::method async_yield_lua::c_methods[] = {
+    { "getname",            &get_name },
+    { "getexpiration",      &get_expiration },
+    { "ready",              &ready },
+    {}
+};
 
 
 
@@ -324,9 +414,9 @@ extern "C" void end_task_manager()
 }
 
 //------------------------------------------------------------------------------
-void shutdown_task_manager()
+void shutdown_task_manager(bool final)
 {
-    return s_manager.shutdown();
+    return s_manager.shutdown(final);
 }
 
 //------------------------------------------------------------------------------

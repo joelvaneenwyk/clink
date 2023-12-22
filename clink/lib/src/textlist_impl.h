@@ -51,6 +51,7 @@ class textlist_impl
         int32       get_col_layout_width(int32 col) const;
         const char* add_entry(const char* entry);
         void        add_columns(const char* columns);
+        void        erase_row(int32 row);
         int32       calc_widths(int32 available);
         bool        get_any_tabs() const;
         void        clear();
@@ -131,6 +132,9 @@ private:
     std::vector<const char*> m_items;       // Escaped entries for display.
     int32           m_longest = 0;
     addl_columns    m_columns;
+
+    // Display.
+    int32           m_prev_content_width = 0;
 
     // Current entry.
     int32           m_top = 0;

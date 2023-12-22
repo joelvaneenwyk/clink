@@ -2,6 +2,54 @@
 
 ### Releases from [chrisant996/clink](https://github.com/chrisant996/clink) fork
 
+#### v1.6.1
+- Improved input line parsing and coloring:
+  - Commands starting with `@` are supported, and completion correctly ignores the `@`.
+  - Each of the following CMD syntax errors are recognized:  lines starting with `&` or `@2>`, and lines containing `& &` or `2>&file`.
+  - The whole redirections `2>file` or `>file` or `2>&1` are colored instead of only the `>` or `>&`.
+- Completions for `clink set` color settings include a color sample in the description field (e.g. type `clink set color`<kbd>Alt</kbd>-<kbd>=</kbd> to see the color settings and their current color samples).
+- The `clink-reload` bindable command now reverts key bindings and config variables before reloading the inputrc file, so that old bindings and values don't linger in the current session if they've been removed from the inputrc file.
+- Added `line_state:getrangeoffset()` and `line_state:getrangelength()` to get the beginning offset and length of the range in the input line described by the line_state.
+- Added `rl.getinputrcfilename()` to get the loaded inputrc file name.
+- Added `rl.translatekey()` to translate between key sequence formats (input key, key binding, and friendly key name).
+- Added `rl.bracketpromptcodes()` to apply `\1` and `\2` codes as needed by Readline in certain inputrc config variables.
+- Removed superfluous `;39` and/or `;49` from color setting escape codes in some cases.
+- Fixed loading the `default_inputrc` file if it exists (introduced in v1.3.5, and it never worked properly until now).
+- Fixed the `history-size` config variable to be completely ignored (it interfered with Clink's history database and settings, which were meant to supersede it).
+- Fixed updating column text in `clink.popuplist()` when <kbd>Del</kbd> is pressed (e.g. history timestamps in the `clink-popup-history` command).
+- Fixed the width of `clink.popuplist()` to take the title into account.
+- Fixed Lua argument errors for some objects (the argument # in the error message was one lower than it should have been in some messages).
+- Fixed the return value from `rl_buffer:setcursor()`.
+- Fixed `console:getnumlines()` between onendedit and onbeginedit.
+- Fixed erasing the "History expansion for" preview when the transient prompt is enabled.
+- Fixed the transient prompt sometimes not erasing properly (regression introduced in v1.5.17).
+
+#### v1.6.0
+- Updated the Readline library to v8.2 patch 7 (the list here omits changes that were contributed to Readline from Clink, or which do not affect Clink).
+  - New features:
+    - History expansion better understands multiple history expansions that may contain strings that would ordinarily inhibit history expansion (e.g., `abc!$!$`).
+    - There is a new `fetch-history` bindable command that retrieves the history entry corresponding to its numeric argument. Negative arguments count back from the end of the history.
+    - There is a new option: `enable-active-region`. This separates control of the active region and bracketed-paste. It has the same default value as `enable-bracketed-paste`, and enabling bracketed paste enables the active region. Users can now turn off the active region while leaving bracketed paste enabled. (Note that bracketed paste is currently ignored in Clink.)
+    - Readline looks in `%LS_COLORS%` for a custom filename extension (`*.readline-colored-completion-prefix`) and uses that as the default color for the common prefix displayed when `colored-completion-prefix` is set, superseding the `so` type if both are present.
+    - Two new bindable string variables: `active-region-start-color` and `active-region-end-color`. The first sets the color used to display the active region; the second is unused and unnecessary in Clink, but exists anyway for compatibility. If set, these are used in place of terminal standout mode.
+  - Fixes:
+    - Fixed a problem with cleaning up active marks.
+    - Fixed a problem with arithmetic comparison operators checking the version in the inputrc file.
+    - Fixed a bug that could cause readline to crash if the application removed the callback line handler before readline read all typeahead.
+    - Added additional checks for read errors in the middle of readline commands.
+    - Fixed a problem with `unix-filename-rubout` that caused it to delete too much when applied to a pathname consisting only of one or more slashes.
+    - Fixed a couple problems where `transpose-words` could corrupt the end of the input line.
+    - Fixed an issue that caused a history line's undo list to be cleared when it should not have been.
+    - Fixed leaked memory from undo lists.
+    - When replacing a history entry, make sure the existing entry has a non-NULL timestamp before copying it; it may have been added by the application, not the history library.
+- The `blink-matching-paren` setting works in Clink now.
+- Completion works for UNC share names now (share names like `\\server\share`, not server names like `\\server`).
+- Improved undo grouping for consecutive inserted text.
+- Added `os.enumshares()` to enumerate the SMB UNC shares on a given server.
+- Fixed Lua error messages from custom Lua libraries that report errors using table objects instead of strings.
+- Fixed issue with the `autosuggest.hint` setting where it could apply incorrect input line coloring when the <kbd>Right</kbd> key isn't bound to one of the usual commands for that key.
+- Internal changes and optimizations.
+
 #### v1.5.18
 - Fixed [#524](https://github.com/chrisant996/clink/issues/524) and [#523](https://github.com/chrisant996/clink/issues/523); garbled display in wide terminal windows (regression introduced in v1.5.14, which exacerbated and revealed a bug that's existed since Clink v1.0.0 alpha and which could intermittently garble Unicode text or escape sequences).
 - Fixed the transient prompt sometimes not displaying properly (regression introduced in v1.5.17).
