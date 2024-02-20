@@ -23,7 +23,7 @@
 #include "ellipsify.h"
 #ifdef USE_SUGGESTION_HINT_COMMENTROW
 #include "rl/rl_commands.h"
-#include "rl/rl_suggestions.h"
+#include "suggestions.h"
 #endif
 
 #include <core/base.h>
@@ -129,6 +129,18 @@ static bool is_autowrap_bug_present()
         return ver.dwMajorVersion < 10;
     return false;
 #pragma warning(pop)
+}
+
+//------------------------------------------------------------------------------
+static HANDLE is_horizpos_workaround_needed()
+{
+    HANDLE h = GetStdHandle(STD_OUTPUT_HANDLE);
+    CONSOLE_SCREEN_BUFFER_INFO csbi;
+    if (!GetConsoleScreenBufferInfo(h, &csbi))
+        return nullptr;
+    if (csbi.srWindow.Left == 0 && csbi.srWindow.Right == csbi.dwSize.X - 1)
+        return nullptr;
+    return h;
 }
 
 //------------------------------------------------------------------------------
@@ -271,6 +283,69 @@ int32 prompt_contains_problem_codes(const char* prompt, std::vector<prompt_probl
 
 done:
     return ret;
+}
+
+
+
+//------------------------------------------------------------------------------
+class preserve_window_scroll_position
+{
+public:
+                        preserve_window_scroll_position(HANDLE h);
+                        ~preserve_window_scroll_position();
+private:
+    static int32        s_nested;
+    static char*        s_saved_rl_term_clreol;
+    static HANDLE       s_h;
+    static CONSOLE_SCREEN_BUFFER_INFO s_window;
+};
+
+//------------------------------------------------------------------------------
+int32 preserve_window_scroll_position::s_nested = 0;
+char* preserve_window_scroll_position::s_saved_rl_term_clreol = nullptr;
+HANDLE preserve_window_scroll_position::s_h = nullptr;
+CONSOLE_SCREEN_BUFFER_INFO preserve_window_scroll_position::s_window;
+
+//------------------------------------------------------------------------------
+preserve_window_scroll_position::preserve_window_scroll_position(HANDLE h)
+{
+    assertimplies(!s_nested, !s_h);
+    ++s_nested;
+    if (!s_h && h)
+    {
+        s_h = h;
+        s_saved_rl_term_clreol = _rl_term_clreol;
+        _rl_term_clreol = nullptr;
+        display_accumulator::flush();
+        GetConsoleScreenBufferInfo(s_h, &s_window);
+    }
+}
+
+//------------------------------------------------------------------------------
+preserve_window_scroll_position::~preserve_window_scroll_position()
+{
+    assert(s_nested > 0);
+    if (s_h)
+    {
+        display_accumulator::flush();
+        CONSOLE_SCREEN_BUFFER_INFO cursor;
+        GetConsoleScreenBufferInfo(s_h, &cursor);
+        if (cursor.srWindow.Right - cursor.srWindow.Left == s_window.srWindow.Right - s_window.srWindow.Left &&
+            cursor.srWindow.Bottom - cursor.srWindow.Top == s_window.srWindow.Bottom - s_window.srWindow.Top &&
+            cursor.dwCursorPosition.X >= cursor.srWindow.Left &&
+            cursor.dwCursorPosition.X <= cursor.srWindow.Right &&
+            cursor.dwCursorPosition.Y >= cursor.srWindow.Top &&
+            cursor.dwCursorPosition.Y <= cursor.srWindow.Bottom)
+            SetConsoleWindowInfo(s_h, true, &s_window.srWindow);
+    }
+    --s_nested;
+    if (!s_nested)
+    {
+        if (s_h)
+            _rl_term_clreol = s_saved_rl_term_clreol;
+        s_h = nullptr;
+        s_saved_rl_term_clreol = nullptr;
+    }
 }
 
 
@@ -1250,31 +1325,46 @@ COORD measure_readline_display(const char* prompt, const char* buffer, uint32 le
 
 
 //------------------------------------------------------------------------------
+void (*display_accumulator::s_saved_fwrite)(FILE*, const char*, int32) = nullptr;
+void (*display_accumulator::s_saved_fflush)(FILE*) = nullptr;
+bool display_accumulator::s_active = false;
 int32 display_accumulator::s_nested = 0;
 static str_moveable s_buf;
 
 //------------------------------------------------------------------------------
 display_accumulator::display_accumulator()
 {
-    assert(!m_saved_fwrite);
-    assert(!m_saved_fflush);
     assert(rl_fwrite_function);
     assert(rl_fflush_function);
-    assert(s_nested || s_buf.empty());
+
+    if (!s_nested)
+    {
+        assert(!s_saved_fwrite);
+        assert(!s_saved_fflush);
+        assert(!s_active);
+        assert(s_buf.empty());
+        s_saved_fwrite = rl_fwrite_function;
+        s_saved_fflush = rl_fflush_function;
+    }
 
     ++s_nested;
 
 #ifdef DEBUG
+    if (s_nested == 1)
     {
         str<> value;
         if (os::get_env("DEBUG_NO_DISPLAY_ACCUMULATOR", value) && atoi(value.c_str()) != 0)
             return;
     }
+    else
+    {
+        if (!s_active)
+            return;
+    }
 #endif
 
-    m_saved_fwrite = rl_fwrite_function;
-    m_saved_fflush = rl_fflush_function;
-    m_active = true;
+    s_active = true;
+
     rl_fwrite_function = fwrite_proc;
     rl_fflush_function = fflush_proc;
 }
@@ -1282,55 +1372,30 @@ display_accumulator::display_accumulator()
 //------------------------------------------------------------------------------
 display_accumulator::~display_accumulator()
 {
-    if (m_active)
+    if (--s_nested == 0)
     {
-        if (s_nested > 1)
-            restore();
-        else
-            flush();
-        assert(!m_active);
+        flush();
+        rl_fwrite_function = s_saved_fwrite;
+        rl_fflush_function = s_saved_fflush;
+        s_saved_fwrite = nullptr;
+        s_saved_fflush = nullptr;
+        s_active = false;
     }
-    --s_nested;
-}
-
-//------------------------------------------------------------------------------
-void display_accumulator::split()
-{
-    if (m_active && s_buf.length())
-    {
-        m_saved_fwrite(_rl_out_stream, s_buf.c_str(), s_buf.length());
-        m_saved_fflush(_rl_out_stream);
-        s_buf.clear();
-    }
+    assert(s_nested >= 0);
 }
 
 //------------------------------------------------------------------------------
 void display_accumulator::flush()
 {
-    if (!m_active || s_nested > 1)
-        return;
-
-    restore();
-
-    if (s_buf.length())
+    assertimplies(!s_active, s_buf.empty());
+    if (s_active && !s_buf.empty())
     {
-        rl_fwrite_function(_rl_out_stream, s_buf.c_str(), s_buf.length());
-        rl_fflush_function(_rl_out_stream);
+        assert(s_saved_fwrite);
+        assert(s_saved_fflush);
+        s_saved_fwrite(_rl_out_stream, s_buf.c_str(), s_buf.length());
+        s_saved_fflush(_rl_out_stream);
         s_buf.clear();
     }
-}
-
-//------------------------------------------------------------------------------
-void display_accumulator::restore()
-{
-    assert(m_active);
-    assert(m_saved_fwrite);
-    assert(m_saved_fflush);
-    rl_fwrite_function = m_saved_fwrite;
-    rl_fflush_function = m_saved_fflush;
-    m_saved_fwrite = nullptr;
-    m_saved_fflush = nullptr;
-    m_active = false;
 }
 
 //------------------------------------------------------------------------------
@@ -1368,11 +1433,13 @@ public:
 
 private:
     void                update_line(int32 i, const display_line* o, const display_line* d, bool has_rprompt);
+    void                clear_comment_row_internal();
     void                move_to_column(uint32 col, bool force=false);
     void                move_to_row(int32 row);
     void                shift_cols(uint32 col, int32 delta);
     void                print(const char* chars, uint32 len);
     void                print_rprompt(const char* s);
+    void                init_horizpos_workaround();
     void                detect_pending_wrap();
     void                finish_pending_wrap();
 
@@ -1383,10 +1450,12 @@ private:
     str_moveable        m_last_prompt_line;
     int32               m_last_prompt_line_width = -1;
     int32               m_last_prompt_line_botlin = -1;
+    int32               m_last_point = -1;
     bool                m_last_modmark = false;
     bool                m_horz_scroll = false;
 
     const bool          m_autowrap_bug;
+    HANDLE              m_horizpos_workaround = nullptr;
     bool                m_pending_wrap = false;
     const display_lines* m_pending_wrap_display = nullptr;
 };
@@ -1411,6 +1480,7 @@ void display_manager::clear()
     m_last_prompt_line.clear();
     m_last_prompt_line_width = -1;
     m_last_prompt_line_botlin = -1;
+    m_last_point = -1;
     m_last_modmark = false;
     m_horz_scroll = false;
 
@@ -1449,11 +1519,14 @@ void display_manager::on_new_line()
 //------------------------------------------------------------------------------
 void display_manager::end_prompt_lf()
 {
+    init_horizpos_workaround();
+    preserve_window_scroll_position preserve(m_horizpos_workaround);
+
     // FUTURE: When in a scrolling mode (vert or horz), reprint the entire
     // prompt and input line without the scroll constraints?
 
     // Erase comment row if present.
-    clear_comment_row();
+    clear_comment_row_internal();
 
     // If the cursor is the only thing on an otherwise-blank last line,
     // compensate so we don't print an extra CRLF.
@@ -1486,7 +1559,7 @@ void display_manager::end_prompt_lf()
             const uint32 len = d->m_len - index;
             const uint32 wc = clink_wcswidth(d->m_chars + index, len);
             move_to_column(_rl_screenwidth - wc);
-            _rl_clear_to_eol(0);
+            _rl_clear_to_eol(wc);
             rl_puts_face_func(d->m_chars + index, d->m_faces + index, len);
         }
         else if (m_top == m_last_prompt_line_botlin && count <= 1)
@@ -1518,6 +1591,9 @@ void display_manager::display()
 {
     if (!_rl_echoing_p)
         return;
+
+    init_horizpos_workaround();
+    preserve_window_scroll_position preserve(m_horizpos_workaround);
 
 #ifdef REPORT_REDISPLAY
     ++s_calls;
@@ -1617,7 +1693,8 @@ void display_manager::display()
         rl_before_display_function();
 
     // Modmark.
-    const bool is_message = (rl_display_prompt == rl_get_message_buffer());
+    const bool is_message = (rl_display_prompt == rl_get_message_buffer() &&
+                             !RL_ISSTATE(RL_STATE_NSEARCH|RL_STATE_READSTR));
     const bool modmark = (!is_message && _rl_mark_modified_lines && current_history() && rl_undo_list);
 
     // If someone thought that the redisplay was handled, but the currently
@@ -1655,7 +1732,7 @@ void display_manager::display()
 
     // Optimization:  can skip updating the display if someone said it's already
     // updated, unless someone is forcing an update.
-    const bool need_update = (!rl_display_fixed || forced_display || was_horz_scroll != m_horz_scroll);
+    const bool need_update = (!rl_display_fixed || forced_display || was_horz_scroll != m_horz_scroll || rl_point != m_last_point);
 
     // Prepare data structures for displaying the input line.
     const display_lines* next = &m_curr;
@@ -1753,7 +1830,7 @@ void display_manager::display()
         if (is_CJK_codepage(GetConsoleOutputCP()))
         {
             CONSOLE_SCREEN_BUFFER_INFO csbi;
-            coalesce.split();
+            coalesce.flush();
             if (get_console_screen_buffer_info(&csbi) &&
                 m_last_prompt_line_width != csbi.dwCursorPosition.X)
             {
@@ -1803,7 +1880,7 @@ void display_manager::display()
         {
             move_to_row(old_botlin + 1);
             move_to_column(0);
-            _rl_clear_to_eol(_rl_screenwidth); // BUGBUG: assumes _rl_term_clreol.
+            _rl_clear_to_eol(_rl_screenwidth);
         }
 
         // Update each display line for the line buffer.
@@ -1832,12 +1909,13 @@ void display_manager::display()
             for (int32 i = new_botlin; i++ < old_botlin;)
             {
                 move_to_row(i);
-                _rl_clear_to_eol(_rl_screenwidth); // BUGBUG: assumes _rl_term_clreol.
+                _rl_clear_to_eol(_rl_screenwidth);
             }
         }
 
         // Update current cursor position.
-        assert(_rl_last_c_pos < _rl_screenwidth);
+        assertimplies(m_horizpos_workaround, _rl_last_c_pos <= _rl_screenwidth);
+        assertimplies(!m_horizpos_workaround, _rl_last_c_pos < _rl_screenwidth);
 
         // Finally update the bottom line counter.
         _rl_vis_botlin = new_botlin;
@@ -1935,7 +2013,8 @@ void display_manager::display()
             }
         }
 
-        print("\x1b[m\x1b[K", 6);
+        print("\x1b[m", 3);
+        _rl_clear_to_eol(_rl_screenwidth - _rl_last_c_pos);
 
         if (reset_col)
         {
@@ -1975,6 +2054,7 @@ void display_manager::display()
     {
         m_next.swap(m_curr);
         m_next.clear();
+        m_last_point = rl_point;
     }
 
     rl_display_fixed = 0;
@@ -2079,15 +2159,27 @@ bool display_manager::has_comment_row() const
 }
 
 //------------------------------------------------------------------------------
-void display_manager::clear_comment_row()
+void display_manager::clear_comment_row_internal()
 {
     if (*m_curr.get_comment_row())
     {
         _rl_move_vert(_rl_vis_botlin + 1);
         _rl_cr();
         _rl_last_c_pos = 0;
-        _rl_clear_to_eol(0);
+        _rl_clear_to_eol(_rl_screenwidth);
         m_curr.clear_comment_row();
+    }
+}
+
+//------------------------------------------------------------------------------
+void display_manager::clear_comment_row()
+{
+    if (*m_curr.get_comment_row())
+    {
+        init_horizpos_workaround();
+        preserve_window_scroll_position preserve(m_horizpos_workaround);
+
+        clear_comment_row_internal();
     }
 }
 
@@ -2113,12 +2205,12 @@ void display_manager::update_line(int32 i, const display_line* o, const display_
         return;
     }
 
-    bool use_eol_opt = !has_rprompt && d->m_toeol;
+    bool use_eol_opt = !m_horizpos_workaround && !has_rprompt && d->m_toeol;
 
     // Optimize updating when the new starting column is less than or equal to
     // the old starting column.  Can't optimize in the other direction unless
     // update_line(0) happens before displaying the prompt string.
-    if (o && d->m_x <= o->m_x)
+    if (!m_horizpos_workaround && o && d->m_x <= o->m_x)
     {
         const char* oc = o->m_chars;
         const char* of = o->m_faces;
@@ -2246,7 +2338,7 @@ test_left:
     {
         if (use_eol_opt)
         {
-            rl_fwrite_function(_rl_out_stream, "\x1b[K", 3);
+            _rl_clear_to_eol(_rl_screenwidth - rcol);
         }
         else
         {
@@ -2283,7 +2375,18 @@ void display_manager::move_to_column(uint32 col, bool force)
     if (col == _rl_last_c_pos && !force)
         return;
 
-    if (col)
+    if (m_horizpos_workaround)
+    {
+        display_accumulator::flush();
+
+        CONSOLE_SCREEN_BUFFER_INFO csbi;
+        GetConsoleScreenBufferInfo(m_horizpos_workaround, &csbi);
+        csbi.dwCursorPosition.X = col;
+
+        preserve_window_scroll_position preserve(m_horizpos_workaround);
+        SetConsoleCursorPosition(m_horizpos_workaround, csbi.dwCursorPosition);
+    }
+    else if (col)
     {
         char *buffer = tgoto(_rl_term_ch, 0, col + 1);
         tputs(buffer);
@@ -2305,6 +2408,7 @@ void display_manager::move_to_row(int32 row)
     if (row == _rl_last_v_pos)
         return;
 
+    preserve_window_scroll_position preserve(m_horizpos_workaround);
     _rl_move_vert(row);
 }
 
@@ -2318,6 +2422,7 @@ void display_manager::shift_cols(uint32 col, int32 delta)
         if (m_pending_wrap)
             finish_pending_wrap();
 
+        assert(!m_horizpos_workaround);
         assert(delta < _rl_screenwidth - col);
         if (_rl_term_IC)
         {
@@ -2346,6 +2451,7 @@ void display_manager::shift_cols(uint32 col, int32 delta)
         if (m_pending_wrap)
             finish_pending_wrap();
 
+        assert(!m_horizpos_workaround);
         assert(-delta < _rl_screenwidth - col);
         if (_rl_term_DC && *_rl_term_DC)
         {
@@ -2399,6 +2505,12 @@ void display_manager::print_rprompt(const char* s)
     // Win10 and higher don't need to deal with pending wrap from rprompt.
     if (m_autowrap_bug)
         detect_pending_wrap();
+}
+
+//------------------------------------------------------------------------------
+void display_manager::init_horizpos_workaround()
+{
+    m_horizpos_workaround = is_horizpos_workaround_needed();
 }
 
 //------------------------------------------------------------------------------

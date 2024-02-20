@@ -6,7 +6,12 @@ _This todo list describes ChrisAnt996's current intended roadmap for Clink's fut
 
 ## High Priority
 
+## Unit Tests
+
 ## Normal Priority
+- The `oncommand` event isn't sent when the command word is determined by chaincommand parsing; `line_editor_impl::maybe_send_oncommand_event()` needs to let `_argreader` determine the command word.
+- Ideally shouldn't find argmatchers for built-in CMD commands when `:chaincommand("process")`.
+- Ideally should find argmatchers for built-in CMD commands even when a directory by the same name exists, unless `:chaincommand("process")`.
 - Some wizard for interactively binding/unbinding keys and changing init file settings; can write back to the .inputrc file.
 - Some wizard for interactively viewing/modifying color settings.
 
@@ -16,15 +21,7 @@ _This todo list describes ChrisAnt996's current intended roadmap for Clink's fut
   - Can the same thing happen with zsh and powerlevel10k transient prompt?
   - Provide a sample .txt file that repros the issue.  Maybe multiple .txt files that chain together (or with a pause; is there an escape code for a pause?) to show the UX flow.
 - Consider plumbing `lua_State*` through all layers to help guarantee things don't accidentally cross from a coroutine into main?
-- Color improvements:
-  - Color themes.  Some way to import color settings en masse.  Some way to export color settings as well?
-  - More sophisticated match color definitions?
-    - Unify match color settings, e.g. something like `%LS_COLORS%` or `%COLORDIR%` (from 4Dos/4NT/TakeCommand).  The fractured `%LS_COLORS%` + `color.readonly` stuff is awkward and confusing.
-    - Ability to combine conditions, e.g. executable=1, readonly=32, executable _AND_ readonly=1;32.
-      - Spaces should mean an "or" operator, instead of an "and" operator (like in 4Dos/4NT/TakeCommand etc).
-      - Precedence for "or", "and", "xor" can be simply left to right (like in 4Dos/4NT/TakeCommand etc).
-      - Automatically optimize rule evaluation by processing CFLAG checks before pattern checks in any group of "or" clauses.
-      - If parsing is fast enough, then maybe don't even bother "compiling" the rules, and simply parse for every entry?
+- Color themes.  Some way to import color settings en masse.  Some way to export color settings as well?
 - Allow removing event handlers, e.g. `clink.onbeginedit(func)` to add an event handler, and something like `clink.onbeginedit(func, false)` or `clink.removebeginedit(func)` to remove one?  Or maybe return a function that can be called to remove it, e.g. like below (but make sure repeated calls become no-ops).  The `clink-diagnostics` command would need to still show any removed event handlers until the next beginedit.  But it gets tricky if `func` is already registered -- should the new redundant registration's removal function be able to remove the pre-existing event handler?
     ```
     local remove = clink.onbeginedit(func) -- add func
@@ -35,6 +32,7 @@ _This todo list describes ChrisAnt996's current intended roadmap for Clink's fut
   - Don't add this ability unless there is a way to ensure comment rows don't get "leaked" and continue showing up past when they were relevant.
   - Argmatcher could maybe automatically show syntax hints for the current word.
 - Make a reusable wrapper mechanism to create coroutine-friendly threaded async operations in Lua?
+- Issue #554.  Consider adding some way to configure Clink to try to run as a "portable program" in the sense that it doesn't write to any OS default locations (such as %TEMP%) and instead writes only to places that are specifically configured.  But Lua scripts and programs they launch would need to also have their own special "portable program" support to avoid writing to OS default locations (especially %TEMP%).  And what size of temporary files are ok to redirect to a "portable storage"?  And who maintains/purges files from the portable storage?  Because Clink runs scripts and other programs, trying to support a "portable program" mode is more complicated than it might sound at first.
 
 ## Follow Up
 - Push update to z.lua repo.
@@ -109,6 +107,10 @@ _This todo list describes ChrisAnt996's current intended roadmap for Clink's fut
 - Windows 10.0.19042.630 seems to have problems when using WriteConsoleW with ANSI escape codes in a powerline prompt in a git repo.  But Windows 10.0.19041.630 doesn't.
 
 ## Punt
+- Clink's `win_terminal_in` keyboard driver generates some things differently than VT220:
+  - Ideally it might have mapped `CTRL-SPC`->0x00(`^@`), `CTRL--`->0x0d(`^M`), `CTRL-/`->0x1f(`^_`), `CTRL-?`->0x7f(`^?` aka `Rubout`).  But I think Clink's approach is overall better for those keys.
+  - Ubuntu in Windows Terminal receives `^?` for `BACKSPC` and `^H` for `CTRL-BACKSPC`.  But that seems backwards versus what I've always seen on many systems over the decades, so I think Clink should stick with `^H` for `BACKSPC` and `^?` for `CTRL-BACKSPC`.
+  - The `CTRL-DIGIT` keys intentionally produce unique key sequences instead of `CTRL-0` through `CTRL-9` mapping to certain control codes or `1`, `9`, and `0`.
 - The `:` and `=` parsing has a side effect that flags like `-f`_`file`_ are ambiguous: since parsing happens independently from argmatchers, `-fc:\file` could be `-f` and `c:\file` or it could be `-fc:` and `\file`.  _[Too much complexity for too little benefit too rarely.]_
   - Revisit the possibility of allowing `line_state` to be mutable and argmatchers adjusting it as they parse the input line?  _No; too messy.  E.g. splitting `"-fc:\foo bar"` gets weird because quoting encloses **two adjacent** words._
   - But an important benefit of the current implementation is that `program_with_no_argmatcher --unknown-flag:filename` is able to do filename completion on `filename`.

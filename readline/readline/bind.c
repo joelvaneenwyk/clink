@@ -1,6 +1,6 @@
 /* bind.c -- key binding and startup file support for the readline library. */
 
-/* Copyright (C) 1987-2022 Free Software Foundation, Inc.
+/* Copyright (C) 1987-2023 Free Software Foundation, Inc.
 
    This file is part of the GNU Readline Library (Readline), a library
    for reading lines of text with interactive input and history editing.
@@ -65,28 +65,25 @@ extern int errno;
 #include "rlshell.h"
 #include "xmalloc.h"
 
-#if !defined (strchr) && !defined (__STDC__)
-extern char *strchr (), *strrchr ();
-#endif /* !strchr && !__STDC__ */
-
 /* Variables exported by this file. */
 Keymap rl_binding_keymap;
 
 /* begin_clink_change */
 const char *_rl_default_init_file = NULL;
+int _rl_default_init_file_optional_set = 0;
 int _rl_load_user_init_file = 1;
+static int _rl_inputrc_optional_set = 0;
 static int fake_byte_oriented = 0;
 #undef rl_byte_oriented
 #define rl_byte_oriented fake_byte_oriented
 /* end_clink_change */
 
+/* Functions exported by this file. */
+rl_macro_print_func_t *rl_macro_display_hook = (rl_macro_print_func_t *)NULL;
+
 static int _rl_skip_to_delim (char *, int, int);
 
-#if defined (USE_VARARGS) && defined (PREFER_STDARG)
 static void _rl_init_file_error (const char *, ...)  __attribute__((__format__ (printf, 1, 2)));
-#else
-static void _rl_init_file_error ();
-#endif
 
 static rl_command_func_t *_rl_function_of_keyseq_internal (const char *, size_t, Keymap, int *);
 
@@ -543,8 +540,7 @@ rl_translate_keyseq (const char *seq, char *array, int *len)
 
   /* When there are incomplete prefixes \C- or \M- (has_control || has_meta)
      without base character at the end of SEQ, they are processed as the
-     prefixes for '\0'.
-  */
+     prefixes for '\0'. */
   for (i = l = 0; (c = seq[i]) || has_control || has_meta; i++)
     {
       /* Only backslashes followed by a non-null character are handled
@@ -648,11 +644,17 @@ rl_translate_keyseq (const char *seq, char *array, int *len)
 	  has_meta = 0;
 	}
 
-      /* If convert-meta is turned on, convert a meta char to a key sequence  */
+      /* If convert-meta is turned on, convert a meta char to a key sequence */
       if (META_CHAR (c) && _rl_convert_meta_chars_to_ascii)
 	{
-	  array[l++] = ESC;	/* ESC is meta-prefix */
-	  array[l++] = UNMETA (c);
+	  int x = UNMETA (c);
+	  if (x)
+	    {
+	      array[l++] = ESC;	/* ESC is meta-prefix */
+	      array[l++] = x;
+	    }
+	  else
+	    array[l++] = c;	/* just do the best we can without sticking a NUL in there. */
 	}
       else
 	array[l++] = (c);
@@ -704,7 +706,8 @@ char *
 rl_untranslate_keyseq (int seq)
 {
   static char kseq[16];
-  int i, c;
+  int i;
+  unsigned char c;
 
   i = 0;
   c = seq;
@@ -715,35 +718,22 @@ rl_untranslate_keyseq (int seq)
       kseq[i++] = '-';
       c = UNMETA (c);
     }
-  else if (c == ESC)
-    {
-      kseq[i++] = '\\';
-      c = 'e';
-    }
-  else if (CTRL_CHAR (c))
-    {
-      kseq[i++] = '\\';
-      kseq[i++] = 'C';
-      kseq[i++] = '-';
-      c = _rl_to_lower (UNCTRL (c));
-    }
-  else if (c == RUBOUT)
-    {
-      kseq[i++] = '\\';
-      kseq[i++] = 'C';
-      kseq[i++] = '-';
-      c = '?';
-    }
 
   if (c == ESC)
     {
       kseq[i++] = '\\';
       c = 'e';
     }
-  else if (c == '\\' || c == '"')
+  else if (CTRL_CHAR (c) || c == RUBOUT)
     {
       kseq[i++] = '\\';
+      kseq[i++] = 'C';
+      kseq[i++] = '-';
+      c = (c == RUBOUT) ? '?' : _rl_to_lower (UNCTRL (c));
     }
+
+  if (c == '\\' || c == '"')
+    kseq[i++] = '\\';
 
   kseq[i++] = (unsigned char) c;
   kseq[i] = '\0';
@@ -754,9 +744,9 @@ char *
 _rl_untranslate_macro_value (char *seq, int use_escapes)
 {
   char *ret, *r, *s;
-  int c;
+  unsigned char c;
 
-  r = ret = (char *)xmalloc (7 * strlen (seq) + 1);
+  r = ret = (char *)xmalloc (8 * strlen (seq) + 1);
   for (s = seq; *s; s++)
     {
       c = *s;
@@ -767,7 +757,9 @@ _rl_untranslate_macro_value (char *seq, int use_escapes)
 	  *r++ = '-';
 	  c = UNMETA (c);
 	}
-      else if (c == ESC)
+
+      /* We want to keep from printing literal control chars */
+      if (c == ESC)
 	{
 	  *r++ = '\\';
 	  c = 'e';
@@ -792,15 +784,10 @@ _rl_untranslate_macro_value (char *seq, int use_escapes)
  	  c = '?';
  	}
 
-      if (c == ESC)
-	{
-	  *r++ = '\\';
-	  c = 'e';
-	}
-      else if (c == '\\' || c == '"')
+      if (c == '\\' || c == '"')
 	*r++ = '\\';
 
-      *r++ = (unsigned char)c;
+      *r++ = c;
     }
   *r = '\0';
   return ret;
@@ -908,21 +895,30 @@ int
 rl_trim_arg_from_keyseq	(const char *keyseq, size_t len, Keymap map)
 {
   register int i, j, parsing_digits;
-  unsigned char ic;
+  unsigned int ic;		/* int to handle ANYOTHERKEY */
   Keymap map0;
 
   if (map == 0)
     map = _rl_keymap;
   map0 = map;
 
-  /* The digits following the initial one (e.g., the binding to digit-argument)
-    or the optional `-' in a binding to digit-argument or universal-argument
-    are not added to rl_executing_keyseq. This is basically everything read by
-    rl_digit_loop. The parsing_digits logic is here in case they ever are. */
+  /* Make sure to add the digits following the initial one (e.g., the binding
+     to digit-argument) and the optional `-' in a binding to digit-argument
+     or universal-argument to rl_executing_keyseq. This is basically
+     everything read by rl_digit_loop. */
   for (i = j = parsing_digits = 0; keyseq && i < len; i++)
     {
       ic = keyseq[i];
 
+      if (parsing_digits == 2)
+	{
+	  if (ic == '-')	/* skip over runs of minus chars */
+	    {
+	      j = i + 1;
+	      continue;
+	    }
+	  parsing_digits = 1;
+	}
       if (parsing_digits)
 	{
 	  if (_rl_digit_p (ic))
@@ -935,10 +931,11 @@ rl_trim_arg_from_keyseq	(const char *keyseq, size_t len, Keymap map)
 
       if (map[ic].type == ISKMAP)
 	{
-	  if (i + 1 == len)
-	    return -1;
 	  map = FUNCTION_TO_KEYMAP (map, ic);
-	  continue;
+	  if (i + 1 == len)
+	    ic = ANYOTHERKEY;
+	  else
+	    continue;
 	}
       if (map[ic].type == ISFUNC)
 	{
@@ -957,16 +954,11 @@ rl_trim_arg_from_keyseq	(const char *keyseq, size_t len, Keymap map)
 
 	  /* This logic should be identical to rl_digit_loop */
 	  /* We accept M-- as equivalent to M--1, C-u- as equivalent to C-u-1
-	     but set parsing_digits to 2 to note that we saw `-' */
-	  if (map[ic].function == rl_universal_argument && (i + 1 == '-'))
-	    {
-	      i++;
-	      parsing_digits = 2;
-	    }
-	  if (map[ic].function == rl_digit_argument && ic == '-')
-	    {
-	      parsing_digits = 2;
-	    }
+	     but set parsing_digits to 2 to note that we saw `-'. See above
+	     for the check that skips over one or more `-' characters. */
+	  if (map[ic].function == rl_universal_argument ||
+	       (map[ic].function == rl_digit_argument && ic == '-'))
+	    parsing_digits = 2;
 
 	  map = map0;
 	  j = i + 1;
@@ -1075,7 +1067,11 @@ rl_read_init_file (const char *filename)
 
 /* begin_clink_change */
   if (_rl_default_init_file)
-    _rl_read_init_file (_rl_default_init_file, 1);
+    {
+      _rl_inputrc_optional_set = _rl_default_init_file_optional_set;
+      _rl_read_init_file (_rl_default_init_file, 1);
+      _rl_inputrc_optional_set = 0;
+    }
 /* end_clink_change */
 
 #if defined (__MSDOS__)
@@ -1158,25 +1154,11 @@ _rl_read_init_file (const char *filename, int include_level)
 }
 
 static void
-#if defined (PREFER_STDARG)
 _rl_init_file_error (const char *format, ...)
-#else
-_rl_init_file_error (va_alist)
-     va_dcl
-#endif
 {
   va_list args;
-#if defined (PREFER_VARARGS)
-  char *format;
-#endif
 
-#if defined (PREFER_STDARG)
   va_start (args, format);
-#else
-  va_start (args);
-  format = va_arg (args, char *);
-#endif
-
   fprintf (stderr, "readline: ");
   if (currently_reading_init_file)
     fprintf (stderr, "%s: line %d: ", current_readline_init_file,
@@ -1196,9 +1178,7 @@ _rl_init_file_error (va_alist)
 /* **************************************************************** */
 
 static int
-parse_comparison_op (s, indp)
-     const char *s;
-     int *indp;
+parse_comparison_op (const char *s, int *indp)
 {
   int i, peekc, op;
 
@@ -1276,7 +1256,7 @@ const char *rl_readline_name = "other";
 /* Stack of previous values of parsing_conditionalized_out. */
 static unsigned char *if_stack = (unsigned char *)NULL;
 static int if_stack_depth;
-static int if_stack_size;
+static size_t if_stack_size;
 
 /* Push _rl_parsing_conditionalized_out, and set parser state based
    on ARGS. */
@@ -1428,6 +1408,99 @@ parser_if (char *args)
 	}
       _rl_parsing_conditionalized_out = 1 - opresult;
     }
+/* begin_clink_change */
+  else if (_rl_strnicmp (args, "clink_version", 13) == 0)
+    {
+      int versionarg, op, previ, major, minor, patch, opresult;
+
+      _rl_parsing_conditionalized_out = 1;
+      /* if "clink_version" is separated from the operator by whitespace, or the
+         operand is separated from the operator by whitespace, restore it.
+         We're more liberal with allowed whitespace for this variable. */
+      if (i > 0 && i <= llen && args[i-1] == '\0')
+        args[i-1] = ' ';
+      args[llen] = '\0';		/* just in case */
+      for (i = 13; whitespace (args[i]); i++)
+	;
+      if (OPSTART(args[i]) == 0)
+	{
+	  _rl_init_file_error ("comparison operator expected, found `%s'", args[i] ? args + i : "end-of-line");
+	  return 0;
+	}
+      previ = i;
+      op = parse_comparison_op (args, &i);
+      if (op <= 0)
+	{
+	  _rl_init_file_error ("comparison operator expected, found `%s'", args+previ);
+	  return 0;
+	}
+      for ( ; args[i] && whitespace (args[i]); i++)
+	;
+      if (args[i] == 0 || _rl_digit_p (args[i]) == 0)
+	{
+	  _rl_init_file_error ("numeric argument expected, found `%s'", args+i);
+	  return 0;
+	}
+      major = minor = patch = 0;
+      previ = i;
+      for ( ; args[i] && _rl_digit_p (args[i]); i++)
+	major = major*10 + _rl_digit_value (args[i]);
+      if (args[i] == '.')
+	{
+	  if (args[i + 1] && _rl_digit_p (args [i + 1]) == 0)
+	    {
+	      _rl_init_file_error ("numeric argument expected, found `%s'", args+previ);
+	      return 0;
+	    }
+	  for (++i; args[i] && _rl_digit_p (args[i]); i++)
+	    minor = minor*10 + _rl_digit_value (args[i]);
+	  if (args[i] == '.')
+	    {
+	      if (args[i + 1] && _rl_digit_p (args [i + 1]) == 0)
+		{
+		  _rl_init_file_error ("numeric argument expected, found `%s'", args+previ);
+		  return 0;
+		}
+	      for (++i; args[i] && _rl_digit_p (args[i]); i++)
+		patch = patch*10 + _rl_digit_value (args[i]);
+	    }
+	}
+      /* optional - check for trailing garbage on the line, allow whitespace
+	 and a trailing comment */
+      previ = i;
+      for ( ; args[i] && whitespace (args[i]); i++)
+	;
+      if (args[i] && args[i] != '#')
+	{
+	  _rl_init_file_error ("trailing garbage on line: `%s'", args+previ);
+	  return 0;
+	}
+      versionarg = (major * 10000000 + minor * 10000 + patch);
+
+      switch (op)
+	{
+	case OP_EQ:
+ 	  opresult = c_clink_version == versionarg;
+	  break;
+	case OP_NE:
+	  opresult = c_clink_version != versionarg;
+	  break;
+	case OP_GT:
+	  opresult = c_clink_version > versionarg;
+	  break;
+	case OP_GE:
+	  opresult = c_clink_version >= versionarg;
+	  break;
+	case OP_LT:
+	  opresult = c_clink_version < versionarg;
+	  break;
+	case OP_LE:
+	  opresult = c_clink_version <= versionarg;
+	  break;
+	}
+      _rl_parsing_conditionalized_out = 1 - opresult;
+    }
+/* end_clink_change */
   /* Check to see if the first word in ARGS is the same as the
      value stored in rl_readline_name. */
   else if (_rl_stricmp (args, rl_readline_name) == 0)
@@ -1644,6 +1717,7 @@ rl_parse_and_bind (char *string)
   int has_meta;
   int keyseq_len;
   char keyseq[3];
+  int implicit_set = 0;
 /* end_clink_change */
 
   while (string && whitespace (*string))
@@ -1702,11 +1776,22 @@ rl_parse_and_bind (char *string)
   if (equivalency)
     string[i++] = '\0';
 
+/* begin_clink_change */
+  if (_rl_inputrc_optional_set)
+    {
+      implicit_set = (find_boolean_var (string) >= 0 || find_string_var (string) >= 0);
+      if (implicit_set)
+	i = 0;
+    }
+/* end_clink_change */
+
   /* If this is a command to set a variable, then do that. */
-  if (_rl_stricmp (string, "set") == 0)
+/* begin_clink_change */
+  //if (_rl_stricmp (string, "set") == 0)
+  if (implicit_set || _rl_stricmp (string, "set") == 0)
+/* end_clink_change */
     {
       char *var, *value, *e;
-      int s;
 
       var = string + i;
       /* Make VAR point to start of variable name. */
@@ -1902,7 +1987,7 @@ rl_parse_and_bind (char *string)
       //char useq[2];
       char* useq = keyseq;
 /* end_clink_change */
-      int fl = strlen (funname);
+      size_t fl = strlen (funname);
 
 /* begin_clink_change */
       //useq[0] = key; useq[1] = '\0';
@@ -2054,9 +2139,7 @@ static const struct {
   { "prefer-visible-bell",	&_rl_prefer_visible_bell,	V_SPECIAL },
   { "print-completions-horizontally", &_rl_print_completions_horizontally, 0 },
   { "revert-all-at-newline",	&_rl_revert_all_at_newline,	0 },
-/* begin_clink_change */
   { "search-ignore-case",	&_rl_search_case_fold,		0 },
-/* end_clink_change */
   { "show-all-if-ambiguous",	&_rl_complete_show_all,		0 },
   { "show-all-if-unmodified",	&_rl_complete_show_unmodified,	0 },
   { "show-mode-in-prompt",	&_rl_show_mode_in_prompt,	0 },
@@ -2750,16 +2833,12 @@ _rl_get_keyname (int key)
   char *keyname;
   int i, c;
 
-  keyname = (char *)xmalloc (8);
+  keyname = (char *)xmalloc (9);
 
   c = key;
   /* Since this is going to be used to write out keysequence-function
      pairs for possible inclusion in an inputrc file, we don't want to
      do any special meta processing on KEY. */
-
-#if 1
-  /* XXX - Experimental */
-  /* We might want to do this, but the old version of the code did not. */
 
   /* If this is an escape character, we don't want to do any more processing.
      Just add the special ESC key sequence and return. */
@@ -2770,28 +2849,23 @@ _rl_get_keyname (int key)
       keyname[2] = '\0';
       return keyname;
     }
-#endif
 
-  /* RUBOUT is translated directly into \C-? */
-  if (key == RUBOUT)
+  if (key == ANYOTHERKEY)
     {
-      keyname[0] = '\\';
-      keyname[1] = 'C';
-      keyname[2] = '-';
-      keyname[3] = '?';
-      keyname[4] = '\0';
+      keyname[0] = '\0';
       return keyname;
     }
 
   i = 0;
+
   /* Now add special prefixes needed for control characters.  This can
      potentially change C. */
-  if (CTRL_CHAR (c))
+  if (CTRL_CHAR (c) || c == RUBOUT)
     {
       keyname[i++] = '\\';
       keyname[i++] = 'C';
       keyname[i++] = '-';
-      c = _rl_to_lower (UNCTRL (c));
+      c = (c == RUBOUT) ? '?' : _rl_to_lower (UNCTRL (c));
     }
 
   /* XXX experimental code.  Turn the characters that are not ASCII or
@@ -2833,7 +2907,7 @@ rl_invoking_keyseqs_in_map (rl_command_func_t *function, Keymap map)
 {
   register int key;
   char **result;
-  int result_index, result_size;
+  size_t result_index, result_size;
 
   result = (char **)NULL;
   result_index = result_size = 0;
@@ -2869,53 +2943,24 @@ rl_invoking_keyseqs_in_map (rl_command_func_t *function, Keymap map)
 	  {
 	    char **seqs;
 	    register int i;
+	    char *keyname;
+	    size_t knlen;
 
 	    /* Find the list of keyseqs in this map which have FUNCTION as
 	       their target.  Add the key sequences found to RESULT. */
-	    if (map[key].function)
-	      seqs =
-	        rl_invoking_keyseqs_in_map (function, FUNCTION_TO_KEYMAP (map, key));
-	    else
+	    if (map[key].function == 0)
 	      break;
 
+	    seqs = rl_invoking_keyseqs_in_map (function, FUNCTION_TO_KEYMAP (map, key));
 	    if (seqs == 0)
 	      break;
 
+	    keyname = _rl_get_keyname (key);
+	    knlen = RL_STRLEN (keyname);
+
 	    for (i = 0; seqs[i]; i++)
 	      {
-		char *keyname = (char *)xmalloc (6 + strlen (seqs[i]));
-
-		if (key == ESC)
-		  {
-		    /* If ESC is the meta prefix and we're converting chars
-		       with the eighth bit set to ESC-prefixed sequences, then
-		       we can use \M-.  Otherwise we need to use the sequence
-		       for ESC. */
-		    if (_rl_convert_meta_chars_to_ascii && map[ESC].type == ISKMAP)
-		      sprintf (keyname, "\\M-");
-		    else
-		      sprintf (keyname, "\\e");
-		  }
-		else
-		  {
-		    int c = key, l = 0;
-		    if (CTRL_CHAR (c) || c == RUBOUT)
-		      {
-			keyname[l++] = '\\';
-			keyname[l++] = 'C';
-			keyname[l++] = '-';
-			c = (c == RUBOUT) ? '?' : _rl_to_lower (UNCTRL (c));
-		      }
-
-		    if (c == '\\' || c == '"')
-		      keyname[l++] = '\\';
-
-		    keyname[l++] = (char) c;
-		    keyname[l++] = '\0';
-		  }
-		
-		strcat (keyname, seqs[i]);
-		xfree (seqs[i]);
+		char *x;
 
 		if (result_index + 2 > result_size)
 		  {
@@ -2923,10 +2968,16 @@ rl_invoking_keyseqs_in_map (rl_command_func_t *function, Keymap map)
 		    result = (char **)xrealloc (result, result_size * sizeof (char *));
 		  }
 
-		result[result_index++] = keyname;
+		x = xmalloc (knlen + RL_STRLEN (seqs[i]) + 1);
+		strcpy (x, keyname);
+		strcpy (x + knlen, seqs[i]);
+		xfree (seqs[i]);
+
+		result[result_index++] = x;
 		result[result_index] = (char *)NULL;
 	      }
 
+	    xfree (keyname);
 	    xfree (seqs);
 	  }
 	  break;
@@ -2941,6 +2992,56 @@ char **
 rl_invoking_keyseqs (rl_command_func_t *function)
 {
   return (rl_invoking_keyseqs_in_map (function, _rl_keymap));
+}
+
+void
+rl_print_keybinding (const char *name, Keymap kmap, int print_readably)
+{
+  rl_command_func_t *function;
+  char **invokers;
+
+  function = rl_named_function (name);
+  invokers = rl_invoking_keyseqs_in_map (function, kmap ? kmap : _rl_keymap);
+
+  if (print_readably)
+    {
+      if (!invokers)
+	fprintf (rl_outstream, "# %s (not bound)\n", name);
+      else
+	{
+	  register int j;
+
+	  for (j = 0; invokers[j]; j++)
+	    {
+	      fprintf (rl_outstream, "\"%s\": %s\n", invokers[j], name);
+	      xfree (invokers[j]);
+	    }
+
+	  xfree (invokers);
+	}
+    }
+  else
+    {
+      if (!invokers)
+	fprintf (rl_outstream, "%s is not bound to any keys\n", name);
+      else
+	{
+	  register int j;
+
+	  fprintf (rl_outstream, "%s can be found on ", name);
+
+	  for (j = 0; invokers[j] && j < 5; j++)
+	    fprintf (rl_outstream, "\"%s\"%s", invokers[j], invokers[j + 1] ? ", " : ".\n");
+
+	  if (j == 5 && invokers[j])
+	    fprintf (rl_outstream, "...\n");
+
+	  for (j = 0; invokers[j]; j++)
+	    xfree (invokers[j]);
+
+	  xfree (invokers);
+	}
+    }
 }
 
 /* Print all of the functions and their bindings to rl_outstream.  If
@@ -2958,58 +3059,7 @@ rl_function_dumper (int print_readably)
   fprintf (rl_outstream, "\n");
 
   for (i = 0; name = names[i]; i++)
-    {
-      rl_command_func_t *function;
-      char **invokers;
-
-      function = rl_named_function (name);
-      invokers = rl_invoking_keyseqs_in_map (function, _rl_keymap);
-
-      if (print_readably)
-	{
-	  if (!invokers)
-	    fprintf (rl_outstream, "# %s (not bound)\n", name);
-	  else
-	    {
-	      register int j;
-
-	      for (j = 0; invokers[j]; j++)
-		{
-		  fprintf (rl_outstream, "\"%s\": %s\n",
-			   invokers[j], name);
-		  xfree (invokers[j]);
-		}
-
-	      xfree (invokers);
-	    }
-	}
-      else
-	{
-	  if (!invokers)
-	    fprintf (rl_outstream, "%s is not bound to any keys\n",
-		     name);
-	  else
-	    {
-	      register int j;
-
-	      fprintf (rl_outstream, "%s can be found on ", name);
-
-	      for (j = 0; invokers[j] && j < 5; j++)
-		{
-		  fprintf (rl_outstream, "\"%s\"%s", invokers[j],
-			   invokers[j + 1] ? ", " : ".\n");
-		}
-
-	      if (j == 5 && invokers[j])
-		fprintf (rl_outstream, "...\n");
-
-	      for (j = 0; invokers[j]; j++)
-		xfree (invokers[j]);
-
-	      xfree (invokers);
-	    }
-	}
-    }
+    rl_print_keybinding (name, _rl_keymap, print_readably);
 
   xfree (names);
 }
@@ -3023,7 +3073,7 @@ rl_dump_functions (int count, int key)
   if (rl_dispatching)
 /* begin_clink_change */
     //fprintf (rl_outstream, "\r\n");
-    end_prompt (1/*crlf*/);
+    end_prompt (0/*crlf*/);
 /* end_clink_change */
   rl_function_dumper (rl_explicit_arg);
 /* begin_clink_change */
@@ -3036,9 +3086,9 @@ rl_dump_functions (int count, int key)
 static void
 _rl_macro_dumper_internal (int print_readably, Keymap map, char *prefix)
 {
-  register int key;
+  int key;
   char *keyname, *out;
-  int prefix_len;
+  size_t prefix_len;
 
   for (key = 0; key < KEYMAP_SIZE; key++)
     {
@@ -3047,6 +3097,16 @@ _rl_macro_dumper_internal (int print_readably, Keymap map, char *prefix)
 	case ISMACR:
 	  keyname = _rl_get_keyname (key);
 	  out = _rl_untranslate_macro_value ((char *)map[key].function, 0);
+
+	  /* If the application wants to print macros, let it. Give it the
+	     ascii-fied value with backslash escapes, so it will have to use
+	     rl_macro_bind (with its call to rl_translate_keyseq) to get the
+	     same value back. */
+	  if (rl_macro_display_hook)
+	    {
+	      (*rl_macro_display_hook) (keyname, out, print_readably, prefix);
+	      break;
+	    }
 
 	  if (print_readably)
 	    fprintf (rl_outstream, "\"%s%s\": \"%s\"\n", prefix ? prefix : "",
@@ -3104,7 +3164,7 @@ rl_dump_macros (int count, int key)
   if (rl_dispatching)
 /* begin_clink_change */
     //fprintf (rl_outstream, "\r\n");
-    end_prompt (1/*crlf*/);
+    end_prompt (0/*crlf*/);
 /* end_clink_change */
   rl_macro_dumper (rl_explicit_arg);
 /* begin_clink_change */
@@ -3117,10 +3177,40 @@ rl_dump_macros (int count, int key)
 static char *
 _rl_get_string_variable_value (const char *name)
 {
-  static char numbuf[32];
+  static char numbuf[64];
   char *ret;
 
-  if (_rl_stricmp (name, "bell-style") == 0)
+  if (_rl_stricmp (name, "active-region-start-color") == 0)
+    {
+      if (_rl_active_region_start_color == 0)
+	return 0;
+      ret = _rl_untranslate_macro_value (_rl_active_region_start_color, 0);
+      if (ret)
+	{
+	  strncpy (numbuf, ret, sizeof (numbuf) - 1);
+	  xfree (ret);
+	  numbuf[sizeof(numbuf) - 1] = '\0';
+	}
+      else
+	numbuf[0] = '\0';
+      return numbuf;
+    }
+  else if (_rl_stricmp (name, "active-region-end-color") == 0)
+    {
+      if (_rl_active_region_end_color == 0)
+	return 0;
+      ret = _rl_untranslate_macro_value (_rl_active_region_end_color, 0);
+      if (ret)
+	{
+	  strncpy (numbuf, ret, sizeof (numbuf) - 1);
+	  xfree (ret);
+	  numbuf[sizeof(numbuf) - 1] = '\0';
+	}
+      else
+	numbuf[0] = '\0';
+      return numbuf;
+    }
+  else if (_rl_stricmp (name, "bell-style") == 0)
     {
       switch (_rl_bell_preference)
 	{
@@ -3154,7 +3244,7 @@ _rl_get_string_variable_value (const char *name)
     return (rl_get_keymap_name_from_edit_mode ());
   else if (_rl_stricmp (name, "history-size") == 0)
     {
-      sprintf (numbuf, "%d", history_is_stifled() ? history_max_entries : 0);
+      sprintf (numbuf, "%d", history_is_stifled() ? history_max_entries : -1);
       return (numbuf);
     }
   else if (_rl_stricmp (name, "isearch-terminators") == 0)
@@ -3231,7 +3321,7 @@ rl_dump_variables (int count, int key)
   if (rl_dispatching)
 /* begin_clink_change */
     //fprintf (rl_outstream, "\r\n");
-    end_prompt (1/*crlf*/);
+    end_prompt (0/*crlf*/);
 /* end_clink_change */
   rl_variable_dumper (rl_explicit_arg);
 /* begin_clink_change */

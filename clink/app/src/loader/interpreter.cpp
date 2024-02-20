@@ -249,21 +249,21 @@ int32 interpreter(int32 argc, char** argv)
 
     __lua_set_clink_callbacks(&g_lua_callbacks);
 
-    settings::load("nul");
-
     if (s_enable_debugging)
     {
         extern bool g_force_load_debugger;
+        extern bool g_force_break_on_error;
         g_force_load_debugger = true;
-        if (s_enable_debugging > 1)
-            settings::find("lua.break_on_error")->set("true");
+        g_force_break_on_error = (s_enable_debugging > 1);
     }
+
+    settings::load(nullptr);
 
     terminal term = terminal_create(nullptr, false/*cursor_visibility*/);
     printer printer(*term.out);
     printer_context prt(term.out, &printer);
     term.in->begin();
-    set_lua_terminal_input(term.in);
+    set_lua_terminal(term.in, term.out);
 
     extern void init_standalone_textlist(terminal& term);
     init_standalone_textlist(term);
@@ -340,7 +340,7 @@ int32 interpreter(int32 argc, char** argv)
     }
 
     term.in->end();
-    set_lua_terminal_input(nullptr);
+    set_lua_terminal(nullptr, nullptr);
 
     return ret;
 }

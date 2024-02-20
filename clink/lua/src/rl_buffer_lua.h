@@ -18,6 +18,9 @@ public:
                             rl_buffer_lua(line_buffer& buffer);
                             ~rl_buffer_lua();
 
+    void                    do_begin_output();
+
+protected:
     int32                   get_buffer(lua_State* state);
     int32                   get_length(lua_State* state);
     int32                   get_cursor(lua_State* state);
@@ -31,6 +34,8 @@ public:
     int32                   refresh_line(lua_State* state);
     int32                   get_argument(lua_State* state);
     int32                   set_argument(lua_State* state);
+    int32                   has_suggestion(lua_State* state);
+    int32                   insert_suggestion(lua_State* state);
     int32                   ding(lua_State* state);
 
 private:

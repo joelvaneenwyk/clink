@@ -18,18 +18,26 @@ class lua_word_classifications
 {
 public:
                             lua_word_classifications(word_classifications& classifications, uint32 index_offset, uint32 command_word_index, uint32 num_words);
+
+    bool                    get_word_class(int32 word_index_zero_based, word_class& wc) const;
+
+protected:
     int32                   classify_word(lua_State* state);
     int32                   apply_color(lua_State* state);
     int32                   shift(lua_State* state);
     int32                   reset_shift(lua_State* state);
-    int32                   unbreak(lua_State* state);
-
-    bool                    get_word_class(int32 word_index_zero_based, word_class& wc) const;
+    int32                   break_word(lua_State* state);
+    int32                   unbreak_word(lua_State* state);
+#ifdef DEBUG
+    int32                   get_word_count(lua_State* state);
+    int32                   get_word_start(lua_State* state);
+    int32                   get_word_end(lua_State* state);
+#endif
 
 private:
     word_classifications&   m_classifications;
     const uint32            m_index_offset;
-    const uint32            m_num_words;
+    uint32                  m_num_words;
     uint32                  m_command_word_index;
     uint32                  m_shift = 0;
     const uint32            m_original_command_word_index;

@@ -31,6 +31,7 @@
 #include <lib/matches_lookaside.h>
 #include <lib/line_editor_integration.h>
 #include <lib/rl_integration.h>
+#include <lib/suggestions.h>
 #include <terminal/terminal_helpers.h>
 #include <terminal/printer.h>
 #include <terminal/screen_buffer.h>
@@ -55,6 +56,7 @@ void set_test_harness() { s_test_harness = true; }
 
 //------------------------------------------------------------------------------
 extern setting_enum g_dupe_mode;
+extern setting_bool g_lua_breakonerror;
 
 #ifdef _WIN64
 static const char c_uninstall_key[] = "SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall";
@@ -365,6 +367,12 @@ static int32 clink_print(lua_State* state)
 
     return 0;
 }
+
+//------------------------------------------------------------------------------
+/// -name:  CLINK_EXE
+/// -ver:   1.0.0
+/// -var:   string
+/// The full path to the Clink executable file.
 
 //------------------------------------------------------------------------------
 /// -name:  clink.version_encoded
@@ -1003,8 +1011,14 @@ static int32 get_popup_list_colors(lua_State* state)
 /// new CMD.exe, which gets a new Clink instance injected, so the history or
 /// info command will use the new session unless explicitly directed to use the
 /// calling session.
-/// -show:  local c = os.getalias("clink")
-/// -show:  local r = io.popen(c.." --session "..clink.getsession().." history")
+/// -show:  local exe = string.format('"%s" --session %s', CLINK_EXE, clink.getsession())
+/// -show:  local r = io.popen('2>nul '..exe..' history')
+/// -show:  if r then
+/// -show:  &nbsp;   for line in r:lines() do
+/// -show:  &nbsp;       print(line)
+/// -show:  &nbsp;   end
+/// -show:  &nbsp;   r:close()
+/// -show:  end
 static int32 get_session(lua_State* state)
 {
     str<32> session;
@@ -2101,6 +2115,14 @@ static int32 release_updater_mutex(lua_State* state)
 }
 
 //------------------------------------------------------------------------------
+static int32 is_break_on_error(lua_State* state)
+{
+    extern bool g_force_break_on_error;
+    lua_pushboolean(state, g_force_break_on_error || g_lua_breakonerror.get());
+    return 1;
+}
+
+//------------------------------------------------------------------------------
 #if defined(DEBUG) && defined(_MSC_VER)
 static int32 last_allocation_number(lua_State* state)
 {
@@ -2293,6 +2315,7 @@ void clink_lua_initialise(lua_state& lua, bool lua_interpreter)
         { 0,    "_show_update_prompt",    &show_update_prompt },
         { 0,    "_acquire_updater_mutex", &acquire_updater_mutex },
         { 0,    "_release_updater_mutex", &release_updater_mutex },
+        { 1,    "_is_break_on_error",     &is_break_on_error },
 #if defined(DEBUG) && defined(_MSC_VER)
         { 0,    "last_allocation_number", &last_allocation_number },
         { 0,    "get_c_callstack",        &get_c_callstack },
@@ -2337,9 +2360,7 @@ void clink_lua_initialise(lua_state& lua, bool lua_interpreter)
 #endif
 
     lua_pushliteral(state, "version_encoded");
-    lua_pushinteger(state, CLINK_VERSION_MAJOR * 10000000 +
-                           CLINK_VERSION_MINOR *    10000 +
-                           CLINK_VERSION_PATCH);
+    lua_pushinteger(state, CLINK_VERSION_ENCODED);
     lua_rawset(state, -3);
 
     lua_pushliteral(state, "version_major");

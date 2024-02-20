@@ -1,6 +1,6 @@
 /* histlib.h -- internal definitions for the history library. */
 
-/* Copyright (C) 1989-2009,2021-2022 Free Software Foundation, Inc.
+/* Copyright (C) 1989-2009,2021-2023 Free Software Foundation, Inc.
 
    This file contains the GNU History Library (History), a set of
    routines for managing the text of previously typed lines.
@@ -34,6 +34,11 @@
 				    : ((a)[0] == (b)[0]) && (strncmp ((a), (b), (n)) == 0))
 #endif
 
+#if !defined (HAVE_STRCASECMP)
+#define strcasecmp(a,b)	strcmp ((a), (b))
+#define strncasecmp(a, b, n)	strncmp ((a), (b), (n))
+#endif
+
 #ifndef savestring
 #define savestring(x) strcpy (xmalloc (1 + strlen (x)), (x))
 #endif
@@ -51,9 +56,6 @@
 #endif
 
 #ifndef member
-#  if !defined (strchr) && !defined (__STDC__)
-extern char *strchr ();
-#  endif /* !strchr && !__STDC__ */
 #define member(c, s) ((c) ? ((char *)strchr ((s), (c)) != (char *)NULL) : 0)
 #endif
 
@@ -72,6 +74,7 @@ extern char *strchr ();
 #define NON_ANCHORED_SEARCH	0
 #define ANCHORED_SEARCH		0x01
 #define PATTERN_SEARCH		0x02
+#define CASEFOLD_SEARCH		0x04
 
 /* Possible definitions for what style of writing the history file we want. */
 #define HISTORY_APPEND 0
@@ -81,6 +84,7 @@ extern char *strchr ();
 
 /* histsearch.c */
 extern int _hs_history_patsearch (const char *, int, int);
+extern int _hs_history_search (const char *, int, int);
 
 /* begin_clink_change */
 typedef int _hist_search_func_t (const char *, int);
@@ -97,6 +101,7 @@ extern history_event_lookup_cache_t history_event_lookup_cache;
 
 /* history.c */
 extern void _hs_replace_history_data (int, histdata_t *, histdata_t *);
+extern int _hs_search_history_data (histdata_t *);
 extern int _hs_at_end_of_history (void);
 
 /* histfile.c */

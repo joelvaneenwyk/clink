@@ -39,6 +39,10 @@
 
 #include <stdio.h>
 
+/* begin_clink_change */
+#include "history.h"
+/* end_clink_change */
+
 /* System-specific feature definitions and include files. */
 #include "rldefs.h"
 #include "readline.h"
@@ -116,8 +120,8 @@ rl_callback_handler_install (const char *prompt, rl_vcpfunc_t *linefunc)
   do { \
     if (rl_persistent_signal_handlers == 0) \
       { \
-        rl_clear_signals (); \
-        if (_rl_caught_signal) _rl_signal_handler (_rl_caught_signal); \
+	rl_clear_signals (); \
+	if (_rl_caught_signal) _rl_signal_handler (_rl_caught_signal); \
       } \
     return; \
   } while (0)
@@ -335,6 +339,58 @@ rl_callback_read_char (void)
 void
 rl_callback_handler_remove (void)
 {
+/* begin_clink_change
+ * This restores rl_undo_list so that after SIGINT and rl_callback_handler_remove()
+ * rl_undo_list isn't left as a dangling pointer into a linked list that's been
+ * freed already.
+ * Excerpted from readline_internal_teardown(), replacing 'the_line' with
+ * 'rl_line_buffer'. */
+  char *temp;
+  HIST_ENTRY *entry;
+
+  RL_CHECK_SIGNALS ();
+
+  if (eof)
+    RL_SETSTATE (RL_STATE_EOF);		/* XXX */
+
+  /* Restore the original of this history line, iff the line that we
+     are editing was originally in the history, AND the line has changed. */
+  entry = current_history ();
+
+  /* We don't want to do this if we executed functions that call
+     history_set_pos to set the history offset to the line containing the
+     non-incremental search string. */
+  if (entry && rl_undo_list)
+   {
+      temp = savestring (rl_line_buffer);
+      rl_revert_line (1, 0);
+      entry = replace_history_entry (where_history (), rl_line_buffer, (histdata_t)NULL);
+/* begin_clink_change */
+#ifdef REPORT_READLINE_UNDO_LIST_LEAKS
+      if (entry && entry->data)
+	{
+	  int not_leaked = 0;
+	  for (UNDO_LIST* walk = rl_undo_list; walk; walk = walk->next)
+	    not_leaked |= (walk == entry->data);
+	  assert (not_leaked);
+	}
+#endif
+/* end_clink_change */
+      _rl_free_history_entry (entry);
+
+      strcpy (rl_line_buffer, temp);
+      xfree (temp);
+    }
+
+  if (_rl_revert_all_at_newline)
+    _rl_revert_all_lines ();
+
+  /* At any rate, it is highly likely that this line has an undo list.  Get
+     rid of it now. */
+  if (rl_undo_list)
+    rl_free_undo_list ();
+/* end_clink_change */
+
   rl_linefunc = NULL;
   RL_UNSETSTATE (RL_STATE_CALLBACK);
   RL_CHECK_SIGNALS ();

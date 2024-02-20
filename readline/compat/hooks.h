@@ -59,6 +59,19 @@ struct hooked_stat
 void end_prompt(int crlf);
 void wait_for_input(unsigned long timeout);
 
+#define HAVE_GETTIMEOFDAY 1
+int gettimeofday(struct timeval *, void *);
+
+// These are implemented in rl_commands.cpp.
+extern const int c_clink_version;
+#ifdef UNDO_LIST_HEAP_DIAGNOSTICS
+struct undo_list;
+typedef struct undo_list UNDO_LIST;
+extern UNDO_LIST* clink_alloc_undo_entry(void);
+extern void clink_free_undo_entry(UNDO_LIST* p);
+extern void clink_check_undo_entry_leaks(void);
+#endif
+
 // These are implemented in os.cpp.
 extern double os_clock(void);
 
@@ -70,3 +83,8 @@ extern const char* lookup_match_description(const char* match);
 
 // These are implemented in ecma48_iter.cpp.
 extern unsigned int clink_wcswidth(const char* str, unsigned int len);
+
+// Use this in a function to prevent it from being COMDAT-folded with another
+// identical function.  E.g. rl_undo_command() versus vi_undo().
+extern void prevent_COMDAT_folding(const char*);
+#define PREVENT_COMDAT_FOLDING() prevent_COMDAT_folding(__FUNCTION__)

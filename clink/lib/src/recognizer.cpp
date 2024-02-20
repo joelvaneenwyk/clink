@@ -58,7 +58,7 @@ static bool search_for_extension(str_base& full, const char* word, str_base& out
                 path::append(full, word);
                 if (os::get_path_type(full.c_str()) == os::path_type_file)
                 {
-                    out = full.c_str();
+                    os::get_full_path_name(full.c_str(), out);
                     return true;
                 }
             }
@@ -69,7 +69,7 @@ static bool search_for_extension(str_base& full, const char* word, str_base& out
         full.concat(start, length);
         if (os::get_path_type(full.c_str()) == os::path_type_file)
         {
-            out = full.c_str();
+            os::get_full_path_name(full.c_str(), out);
             return true;
         }
     }
@@ -609,6 +609,8 @@ void shutdown_recognizer()
 //------------------------------------------------------------------------------
 recognition recognize_command(const char* line, const char* word, bool quoted, bool& ready, str_base* file)
 {
+    assert(word);
+
     ready = true;
 
     str<> tmp;
@@ -636,6 +638,9 @@ recognition recognize_command(const char* line, const char* word, bool quoted, b
     str<> tmp2;
     if (os::expand_env(word, -1, tmp2))
         word = tmp2.c_str();
+
+    if (!*word)
+        return recognition::unknown;
 
     // Ignore device names.
     if (path::is_device(word))

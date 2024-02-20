@@ -1,6 +1,6 @@
 /* history.c -- standalone history library */
 
-/* Copyright (C) 1989-2021 Free Software Foundation, Inc.
+/* Copyright (C) 1989-2023 Free Software Foundation, Inc.
 
    This file contains the GNU History Library (History), a set of
    routines for managing the text of previously typed lines.
@@ -42,6 +42,7 @@
 #  endif
 #  include <unistd.h>
 #endif
+#include "posixtime.h"
 
 #include <errno.h>
 
@@ -279,7 +280,7 @@ hist_inittime (void)
   time_t t;
   char ts[64], *ret;
 
-  t = (time_t) time ((time_t *)0);
+  t = getnow ();
 #if defined (HAVE_VSNPRINTF)		/* assume snprintf if vsnprintf exists */
   snprintf (ts, sizeof (ts) - 1, "X%lu", (unsigned long) t);
 #else
@@ -306,8 +307,6 @@ add_history (const char *string)
 
   if (history_stifled && (history_length == history_max_entries))
     {
-      register int i;
-
       /* If the history is stifled, and history_length is zero,
 	 and it equals history_max_entries, we don't save items. */
       if (history_length == 0)
@@ -483,7 +482,7 @@ _hs_replace_history_data (int which, histdata_t *old, histdata_t *new)
     }
 
   last = -1;
-  for (i = 0; i < history_length; i++)
+  for (i = history_length - 1; i >= 0; i--)
     {
       entry = the_history[i];
       if (entry == 0)
@@ -500,8 +499,28 @@ _hs_replace_history_data (int which, histdata_t *old, histdata_t *new)
       entry = the_history[last];
       entry->data = new;	/* XXX - we don't check entry->old */
     }
-}      
-  
+}
+
+int
+_hs_search_history_data (histdata_t *needle)
+{
+  register int i;
+  HIST_ENTRY *entry;
+
+  if (history_length == 0 || the_history == 0)
+    return -1;
+
+  for (i = history_length - 1; i >= 0; i--)
+    {
+      entry = the_history[i];
+      if (entry == 0)
+	continue;
+      if (entry->data == needle)
+	return i;
+    }
+  return -1;
+}
+
 /* Remove history element WHICH from the history.  The removed
    element is returned to you so you can free the line, data,
    and containing structure. */
@@ -634,9 +653,4 @@ clear_history (void)
 
   history_offset = history_length = 0;
   history_base = 1;		/* reset history base to default */
-
-/* begin_clink_change */
-  xfree (history_event_lookup_cache.search_string);
-  memset (&history_event_lookup_cache, 0, sizeof (history_event_lookup_cache));
-/* end_clink_change */
 }

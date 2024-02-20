@@ -281,6 +281,9 @@ _rl_handle_signal (int sig)
 	sigprocmask (SIG_BLOCK, &set, &oset);
 #endif
 
+#if defined (READLINE_CALLBACKS)
+      if (RL_ISSTATE (RL_STATE_CALLBACK) == 0 || rl_persistent_signal_handlers)
+#endif
       rl_echo_signal_char (sig);
       rl_cleanup_after_signal ();
 
@@ -646,7 +649,6 @@ rl_check_signals (void)
 /* **************************************************************** */
 
 #if defined (HAVE_POSIX_SIGNALS)
-static sigset_t sigint_set, sigint_oset;
 static sigset_t sigwinch_set, sigwinch_oset;
 #else /* !HAVE_POSIX_SIGNALS */
 #  if defined (HAVE_BSD_SIGNALS)

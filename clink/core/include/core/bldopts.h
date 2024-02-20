@@ -31,9 +31,7 @@
 //------------------------------------------------------------------------------
 // Define to include the match.coloring_rules setting.
 // The %CLINK_MATCH_COLORS% environment variable is included regardless.
-#ifdef DEBUG
-#define INCLUDE_MATCH_COLORING_RULES    // Needs documentation.
-#endif
+#define INCLUDE_MATCH_COLORING_RULES
 
 //------------------------------------------------------------------------------
 // Debugging options.
@@ -44,6 +42,7 @@
 //#define DEBUG_RESOLVEIMPL
 //#define USE_OS_UTF_CONVERSION
 //#define REPORT_READLINE_UNDO_LIST_LEAKS
+#define UNDO_LIST_HEAP_DIAGNOSTICS
 #endif
 
 //------------------------------------------------------------------------------

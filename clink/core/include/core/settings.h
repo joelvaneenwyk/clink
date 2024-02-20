@@ -32,25 +32,38 @@ namespace settings
 const uint32 c_max_len_name = 32;
 const uint32 c_max_len_short_desc = 48;
 
-setting_iter        first();
-setting*            find(const char* name);
-bool                load(const char* file, const char* default_file=nullptr);
-bool                save(const char* file);
-
-void                get_settings_file(str_base& out);
-bool                sandboxed_set_setting(const char* name, const char* value);
-
 struct setting_name_value
 {
     setting_name_value(const char* name, const char* value)
     : name(name)
     , value(value)
+    , clear(false)
+    {
+    }
+
+    setting_name_value(const char* name, const char* value, bool clear)
+    : name(name)
+    , value(value)
+    , clear(clear)
     {
     }
 
     str_moveable    name;
     str_moveable    value;
+    bool            clear;
 };
+
+setting_iter        first();
+setting*            find(const char* name);
+bool                load(const char* file, const char* default_file=nullptr);
+bool                save(const char* file);
+
+bool                parse_ini(const char* file, std::vector<setting_name_value>& out);
+void                overlay(const std::vector<setting_name_value>& overlay);
+
+void                get_settings_file(str_base& out);
+bool                sandboxed_set_setting(const char* name, const char* value);
+bool                sandboxed_overlay(const std::vector<setting_name_value>& overlay);
 
 bool                migrate_setting(const char* name, const char* value, std::vector<setting_name_value>& out);
 
@@ -91,12 +104,16 @@ public:
     virtual void    get(str_base& out) const = 0;
     virtual void    get_descriptive(str_base& out) const { get(out); }
 
+    void            set_source(char const* source);
+    const char*     get_source() const;
+
 protected:
                     setting(const char* name, const char* short_desc, const char* long_desc, type_e type);
     const char*     get_custom_default() const;
     str<settings::c_max_len_name + 1, false> m_name;
     str<settings::c_max_len_short_desc + 1, false> m_short_desc;
     str<128>        m_long_desc;
+    str_moveable    m_source;
     type_e          m_type;
 
     template <typename T>

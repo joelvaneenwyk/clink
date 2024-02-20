@@ -17,13 +17,13 @@
 #define static_assert _Static_assert
 #endif
 
-#include "hooks.h"
-
 #if defined(BUILD_READLINE) && !defined(__cplusplus)
 #include "../../clink/core/include/core/bldopts.h"
 #include "../../clink/core/include/core/debugheap.h"
 #include <assert.h>
 #endif
+
+#include "hooks.h"
 
 int     compare_string(const char* s1, const char* s2, int casefold);
 
@@ -31,9 +31,9 @@ int     compare_string(const char* s1, const char* s2, int casefold);
 //
 //
 int     hooked_fwrite(const void*, int, int, FILE*);
-void    hooked_fprintf(FILE*, const char*, ...);
+int     hooked_fprintf(FILE*, const char*, ...);
 int     hooked_putc(int, FILE*);
-void    hooked_fflush(FILE*);
+int     hooked_fflush(FILE*);
 int     hooked_fileno(FILE*);
 int     hooked_stat(const char*, struct hooked_stat*);
 int     hooked_lstat(const char*, struct hooked_stat*);
@@ -194,6 +194,9 @@ extern wcswidth_t *wcswidth;
 
 /* Define if you have the isxdigit function. */
 #define HAVE_ISXDIGIT 1
+
+/* Define if you have the gettimeofday function.*/
+/* #undef HAVE_GETTIMEOFDAY */
 
 /* Define if you have the kill function. */
 /* #undef HAVE_KILL */

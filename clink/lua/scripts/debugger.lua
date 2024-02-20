@@ -73,6 +73,10 @@ end
 
 local bold = "\x1b[1m"
 local normal = "\x1b[m"
+local show_cursor = "\x1b[?25h"
+
+-- Use '**' instead of '***' so 5-digit line numbers don't break indentation.
+local star_tag = '\x1b[91m'..'**'..normal
 
 -- pause() must step over a different number of lines depending on whether the
 -- debugger is started yet, and whether debugger.lua is embedded (precompiled).
@@ -168,13 +172,17 @@ end
 
 --}}}
 
---{{{  sorted iterator for the help command
+--{{{  sorted iterator
 --     https://stackoverflow.com/questions/15706270/sort-a-table-in-lua
 
 local function spairs(t, order)
   -- collect the keys
   local keys = {}
-  for k in pairs(t) do keys[#keys+1] = k end
+  local num = 0
+  for k in pairs(t) do
+    num = num + 1
+    keys[num] = k
+  end
 
   -- if order function given, sort by it by passing the table and keys a, b,
   -- otherwise just sort the keys
@@ -191,6 +199,16 @@ local function spairs(t, order)
     if keys[i] then
       return keys[i], t[keys[i]]
     end
+  end
+end
+
+local function dump_order(t, a, b)
+  local ta = type(a)
+  local tb = type(b)
+  if ta == tb then
+    return a < b
+  else
+    return ta < tb
   end
 end
 
@@ -383,7 +401,7 @@ Can also be called from a script as dump(var,depth).
 ]],
 
 tron    = [[
-tron [crl]          -- turn trace on for (c)alls, (r)etuns, (l)lines|
+tron [crl]          -- turn trace on for (c)alls, (r)eturns, (l)lines|
 
 If no parameter is given then tracing is turned off.
 When tracing is turned on a line is printed to the console for each
@@ -502,7 +520,7 @@ local function dumpval( level, name, value, limit )
         indented( level, index, dumpvisited[value] )
       else
         indented( level, index, '{  -- ', dumpvisited[value] )
-        for n,v in pairs(value) do
+        for n,v in spairs(value, dump_order) do
           dumpval( level+1, n, v, limit )
         end
         indented( level, '};' )
@@ -572,7 +590,7 @@ local function show(file,line,before,after)
     if i >= (line-before) then
       if i > (line+after) then break end
       if i == line then
-        io_write(i..'***\t'..l..'\n')
+        io_write(bold..i..star_tag..'\t'..bold..l..normal..'\n')
       else
         io_write(i..'\t'..l..'\n')
       end
@@ -642,13 +660,18 @@ end
 
 local function trace(set)
   local mark
+  local pro, epi
   for level,ar in ipairs(traceinfo) do
     if level == set then
-      mark = '***'
+      mark = star_tag..bold
+      pro = bold
+      epi = normal
     else
       mark = ''
+      pro = ''
+      epi = ''
     end
-    io_write('['..level..']'..mark..'\t'..(ar.name or ar.what)..' in '..ar.short_src..':'..ar.currentline..'\n')
+    io_write(pro..'['..level..']'..mark..'\t'..(ar.name or ar.what)..' in '..ar.short_src..':'..ar.currentline..epi..'\n')
   end
 end
 
@@ -1002,6 +1025,8 @@ local function debugger_loop(ev, vars, file, line, idx_watch)
   end
 
   --}}}
+
+  io_write(show_cursor)
 
   while true do
     io_write(bold .. "[DEBUG]>" .. normal .. " ")

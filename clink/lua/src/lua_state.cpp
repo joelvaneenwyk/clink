@@ -63,7 +63,7 @@ static setting_bool g_lua_breakontraceback(
     "Breaks into the Lua debugger on traceback() calls, if lua.debug is enabled.",
     false);
 
-static setting_bool g_lua_breakonerror(
+setting_bool g_lua_breakonerror(
     "lua.break_on_error",
     "Breaks into Lua debugger on Lua errors",
     "Breaks into the Lua debugger on Lua errors, if lua.debug is enabled.",
@@ -171,6 +171,7 @@ enum class global_state : uint32
 DEFINE_ENUM_FLAG_OPERATORS(global_state);
 
 //------------------------------------------------------------------------------
+bool lua_state::s_internal = false;
 bool lua_state::s_interpreter = false;
 bool lua_state::s_in_luafunc = false;
 bool lua_state::s_in_onfiltermatches = false;
@@ -194,6 +195,8 @@ lua_state::~lua_state()
 //------------------------------------------------------------------------------
 void lua_state::initialise(lua_state_flags flags)
 {
+    assert(!s_internal);
+
     shutdown();
 
     const bool interpreter = !!int32(flags & lua_state_flags::interpreter);
@@ -258,6 +261,7 @@ void lua_state::initialise(lua_state_flags flags)
         lua_load_script(self, lib, debugger);
 
     // Load core scripts.
+    lua_load_script(self, lib, error);
     lua_load_script(self, lib, core);
     lua_load_script(self, lib, console);
     if (!interpreter)
@@ -721,7 +725,7 @@ bool lua_state::call_lua_rl_global_function(const char* func_name, const line_st
     str<> msg;
     if (!push_named_function(L, func_name, &msg))
     {
-        buffer.begin_output(L);
+        buffer.do_begin_output();
         puts(msg.c_str());
         return false;
     }
@@ -743,7 +747,7 @@ bool lua_state::call_lua_rl_global_function(const char* func_name, const line_st
     {
         if (const char* error = lua_tostring(L, -1))
         {
-            buffer.begin_output(L);
+            buffer.do_begin_output();
             printf("error executing function '%s':\n", func_name);
             puts(error);
         }
@@ -834,8 +838,14 @@ void get_lua_srcinfo(lua_State* L, str_base& out)
 
 //------------------------------------------------------------------------------
 static terminal_in* s_lua_term_in = nullptr;
-void set_lua_terminal_input(terminal_in* in) { s_lua_term_in = in; }
+static terminal_out* s_lua_term_out = nullptr;
+void set_lua_terminal(terminal_in* in, terminal_out* out)
+{
+    s_lua_term_in = in;
+    s_lua_term_out = out;
+}
 terminal_in* get_lua_terminal_input() { return s_lua_term_in; }
+terminal_out* get_lua_terminal_output() { return s_lua_term_out; }
 
 
 

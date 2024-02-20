@@ -9,6 +9,8 @@
 #include <core/settings.h>
 #include <core/str_tokeniser.h>
 #include <core/debugheap.h>
+#include <lib/host_callbacks.h>
+#include <terminal/terminal_out.h>
 
 #include <new.h>
 
@@ -141,6 +143,109 @@ static int32 set(lua_State* state)
     if (ok)
         ok = settings::sandboxed_set_setting(key, value);
 
+    if (lua_state::is_interpreter() &&
+        strcmp(setting->get_name(), "terminal.emulation") == 0)
+    {
+        terminal_out* out = get_lua_terminal_output();
+        if (out)
+        {
+            out->end();
+            out->begin();
+        }
+    }
+
+    lua_pushboolean(state, ok == true);
+    return 1;
+}
+
+//------------------------------------------------------------------------------
+static int32 parse_ini(lua_State* state)
+{
+    const char* file = checkstring(state, 1);
+    if (!file)
+        return 0;
+
+    std::vector<settings::setting_name_value> pairs;
+
+    if (!settings::parse_ini(file, pairs))
+        return 0;
+
+    lua_createtable(state, int32(pairs.size()), 0);
+
+    for (uint32 i = 0; i < pairs.size(); ++i)
+    {
+        const auto& el = pairs[i];
+
+        lua_createtable(state, el.clear ? 1 : 2, 0);
+
+        lua_pushliteral(state, "name");
+        lua_pushlstring(state, el.name.c_str(), el.name.length());
+        lua_rawset(state, -3);
+
+        if (!el.clear)
+        {
+            lua_pushliteral(state, "value");
+            lua_pushlstring(state, el.value.c_str(), el.value.length());
+            lua_rawset(state, -3);
+        }
+
+        lua_rawseti(state, -2, i + 1);
+    }
+
+    return 1;
+}
+
+//------------------------------------------------------------------------------
+static int32 overlay(lua_State* state)
+{
+    if (!lua_istable(state, 1))
+        return luaL_argerror(state, 1, "must be a table");
+
+    std::vector<settings::setting_name_value> pairs;
+
+    for (int32 i = 1, n = int32(lua_rawlen(state, 2)); i <= n; ++i)
+    {
+        lua_rawgeti(state, -1, i);
+
+        if (!lua_istable(state, -1))
+        {
+            lua_pop(state, 1);
+            continue;
+        }
+
+        const char* name;
+        lua_pushliteral(state, "name");
+        lua_rawget(state, -2);
+        if (!lua_isstring(state, -1))
+        {
+            lua_pop(state, 2);
+            continue;
+        }
+        name = lua_tostring(state, -1);
+        lua_pop(state, 1);
+
+        const char* value;
+        lua_pushliteral(state, "value");
+        lua_rawget(state, -2);
+        if (lua_isnoneornil(state, -1))
+            value = nullptr;
+        else if (lua_isstring(state, -1))
+            value = lua_tostring(state, -1);
+        else
+        {
+            const char* msg = lua_pushfstring(state, "'value' field of element #%u is not a string or nil", i);
+            return luaL_argerror(state, 1, msg);
+        }
+        lua_pop(state, 1);
+
+        pairs.emplace_back(name, value, !value/*clear*/);
+
+        lua_pop(state, 1);
+    }
+
+    settings::overlay(pairs);
+    bool ok = settings::sandboxed_overlay(pairs);
+
     lua_pushboolean(state, ok == true);
     return 1;
 }
@@ -157,6 +262,12 @@ template <typename S, typename... V> void add_impl(lua_State* state, V... value)
     // Initialize the definition and apply any value that was read during load.
     dbg_snapshot_heap(snapshot);
     new (addr) S(name, short_desc, long_desc, value...);
+    if (!lua_state::is_internal())
+    {
+        str<> source;
+        get_lua_srcinfo(state, source);
+        ((setting*)addr)->set_source(source.c_str());
+    }
     ((S*)addr)->deferred_load();
     dbg_ignore_since_snapshot(snapshot, "Settings");
 
@@ -357,12 +468,27 @@ static void push_setting_values_table(lua_State* state, const setting* setting, 
 
 //------------------------------------------------------------------------------
 // Undocumented, because it's only needed internally.
+static int32 load(lua_State* state)
+{
+    int32 id;
+    host_context context;
+    host_get_app_context(id, context);
+
+    const char* file = *context.settings.c_str() ? context.settings.c_str() : "nul";
+    const char* def = *context.default_settings.c_str() ? context.default_settings.c_str() : nullptr;
+    lua_pushboolean(state, settings::load(file, def));
+    return 1;
+}
+
+//------------------------------------------------------------------------------
+// Undocumented, because it's only needed internally.
 static int32 list(lua_State* state)
 {
     if (lua_gettop(state) < 1)
     {
         lua_createtable(state, 0, 1);
 
+        const char* source;
         int32 count = 0;
         for (setting_iter iter = settings::first(); const setting* setting = iter.next();)
         {
@@ -375,6 +501,14 @@ static int32 list(lua_State* state)
             lua_pushliteral(state, "description");
             lua_pushstring(state, setting->get_short_desc());
             lua_rawset(state, -3);
+
+            source = setting->get_source();
+            if (source && *source)
+            {
+                lua_pushliteral(state, "source");
+                lua_pushstring(state, source);
+                lua_rawset(state, -3);
+            }
 
             lua_rawseti(state, -2, ++count);
         }
@@ -438,26 +572,35 @@ static int32 match(lua_State* state)
 void settings_lua_initialise(lua_state& lua)
 {
     struct {
+        int32       always;
         const char* name;
         int32       (*method)(lua_State*);
     } methods[] = {
-        { "get",    &get },
-        { "set",    &set },
-        { "add",    &add },
+        { 1, "get",         &get },
+        { 1, "set",         &set },
+        { 1, "add",         &add },
         // UNDOCUMENTED; internal use only.
-        { "list",   &list },
-        { "match",  &match },
+        { -1, "load",       &load },
+        { 1, "list",        &list },
+        { 1, "match",       &match },
+        { 1, "_parseini",   &parse_ini },
+        { 1, "_overlay",    &overlay },
     };
 
     lua_State* state = lua.get_state();
 
     lua_createtable(state, sizeof_array(methods), 0);
 
+    const bool lua_interpreter = lua.is_interpreter();
+
     for (const auto& method : methods)
     {
-        lua_pushstring(state, method.name);
-        lua_pushcfunction(state, method.method);
-        lua_rawset(state, -3);
+        if (lua_interpreter ? method.always : method.always >= 0)
+        {
+            lua_pushstring(state, method.name);
+            lua_pushcfunction(state, method.method);
+            lua_rawset(state, -3);
+        }
     }
 
     lua_setglobal(state, "settings");

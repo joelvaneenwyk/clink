@@ -707,7 +707,7 @@ static int32 set_matches(lua_State* state)
     match_builder builder(*matches);
     match_builder_lua builder_lua(builder);
 
-    return builder_lua.add_matches(state);
+    return builder_lua.do_add_matches(state, false/*self_on_stack*/);
 }
 
 //------------------------------------------------------------------------------
@@ -1192,9 +1192,10 @@ static int32 describe_macro(lua_State* state)
     if (macro && description)
     {
         str<> tmp;
-        if (macro[0] != '\"' || (macro[0] && macro[strlen(macro) - 1] != '\"'))
+        const uint32 len = str_len(macro);
+        if (macro[0] == '\"' && macro[1] && macro[len - 1] == '\"')
         {
-            tmp << "\"" << macro << "\"";
+            tmp.concat(macro + 1, len - 2);
             macro = tmp.c_str();
         }
 
@@ -1378,7 +1379,7 @@ static int32 translate_key(lua_State* state)
 }
 
 //------------------------------------------------------------------------------
-/// -name:  bracketpromptcodes
+/// -name:  rl.bracketpromptcodes
 /// -ver:   1.6.1
 /// -arg:   prompt:string
 /// -ret:   string
@@ -1400,7 +1401,7 @@ static int32 bracket_prompt_codes(lua_State* state)
 }
 
 //------------------------------------------------------------------------------
-/// -name:  getinputrcfilename
+/// -name:  rl.getinputrcfilename
 /// -ver:   1.6.1
 /// -ret:   string|nil, string|nil
 /// Returns the path and file name of the Readline init file that was loaded, if

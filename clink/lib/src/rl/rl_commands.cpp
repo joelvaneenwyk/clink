@@ -19,8 +19,7 @@
 #include "clink_rl_signal.h"
 #include "rl_integration.h"
 #include "line_editor_integration.h"
-
-#include "rl_suggestions.h"
+#include "suggestions.h"
 
 #include <core/base.h>
 #include <core/log.h>
@@ -35,19 +34,28 @@
 #include <terminal/ecma48_iter.h>
 
 extern "C" {
+#include <readline/history.h>
 #include <readline/readline.h>
 #include <readline/rldefs.h>
 #include <readline/rlprivate.h>
-#include <readline/history.h>
 extern int32 find_streqn (const char *a, const char *b, int32 n);
 extern void rl_replace_from_history(HIST_ENTRY *entry, int flags);
 }
 
+#ifdef DEBUG
+#include <core/assert_improved.h>
+#endif
+#include <core/callstack.h>
+#include <core/linear_allocator.h>
+
 #include <list>
 #include <unordered_set>
+#include <unordered_map>
 #include <signal.h>
 
 #include "../../../clink/app/src/version.h" // Ugh.
+
+extern "C" const int32 c_clink_version = CLINK_VERSION_ENCODED;
 
 
 
@@ -241,6 +249,160 @@ int32 host_remove_history(int32 rl_history_index, const char* line)
     history_database* h = history_database::get();
     return h && h->remove(rl_history_index, line);
 }
+
+
+
+//------------------------------------------------------------------------------
+#ifdef UNDO_LIST_HEAP_DIAGNOSTICS
+class undo_entry_heap
+{
+    struct tracker
+    {
+        bool m_freed = false;
+        bool m_seen = false;
+        uint32 m_num = 0;
+        DWORD m_alloc_frames_hash = 0;
+        uint32 m_alloc_frames_count = 0;
+        void* m_alloc_frames[20];
+        DWORD m_free_frames_hash = 0;
+        uint32 m_free_frames_count = 0;
+        void* m_free_frames[20];
+    };
+
+    struct wrapped_UNDO_LIST
+    {
+        tracker*    m_tracker;      // Make it easy to find in the debugger:  ((tracker**)rl_undo_list)[-1]
+        UNDO_LIST   m_undo_list;
+    };
+
+public:
+    undo_entry_heap() : m_heap(32768)
+    {
+    }
+
+    UNDO_LIST* alloc_undo_entry()
+    {
+        dbg_ignore_scope(snapshot, "undo_entry_heap");
+
+        tracker* t = new tracker;
+        wrapped_UNDO_LIST* p = (wrapped_UNDO_LIST*)m_heap.alloc(sizeof(tracker*) + sizeof(*p));
+        if (!p)
+        {
+            delete t;
+            return nullptr;
+        }
+        t->m_num = s_num++;
+        t->m_alloc_frames_count = get_callstack_frames(1, sizeof_array(t->m_alloc_frames), t->m_alloc_frames, &t->m_alloc_frames_hash);
+        assert(!t->m_freed);
+        p->m_tracker = t;
+        m_allocated.emplace(&p->m_undo_list, t);
+        return &p->m_undo_list;
+    }
+
+    void free_undo_entry(UNDO_LIST* p)
+    {
+        auto it = m_allocated.find(p);
+        assert(it != m_allocated.end());
+        tracker* t = it->second;
+        assert(t);
+        if (t->m_freed)
+        {
+            str<> s;
+            char sa[4096];
+            char sf[4096];
+            char sd[4096];
+            format_frames(t->m_alloc_frames_count, t->m_alloc_frames, t->m_alloc_frames_hash, sa, sizeof(sa), true);
+            format_frames(t->m_free_frames_count, t->m_free_frames, t->m_free_frames_hash, sf, sizeof(sf), true);
+            DWORD df_hash;
+            void* df_frames[20];
+            uint32 df_count = get_callstack_frames(1, sizeof_array(df_frames), df_frames, &df_hash);
+            format_frames(df_count, df_frames, df_hash, sd, sizeof(sd), true);
+            s.format("ALREADY FREED %p (#%u)\r\n\r\nalloc stacktrace:  %s\r\noriginal free stacktrace:  %s\r\nthis double-free stacktrace:  %s", p, t->m_num, sa, sf, sd);
+            assert(!t->m_freed);
+            dbgtracef("%s", s.c_str());
+        }
+        // NOTE: This diagnostic heap doesn't actually free any blocks; that
+        // enables it to accurately, uniquely, and independently track the
+        // history of each individual allocation.
+        t->m_freed = true;
+        t->m_free_frames_count = get_callstack_frames(1, sizeof_array(t->m_free_frames), t->m_free_frames, &t->m_free_frames_hash);
+    }
+
+    void check_undo_entry_leaks()
+    {
+        uint32 leaks = 0;
+        bool new_leaks = false;
+        for (const auto tracker : m_allocated)
+        {
+            if (!tracker.second->m_freed)
+                ++leaks;
+            if (!tracker.second->m_seen)
+                new_leaks = true;
+        }
+
+        if (leaks)
+        {
+            if (new_leaks)
+            {
+                if (m_heap.footprint() > m_heap.pagesize() || dbg_get_env_int("DEBUG_REPORT_UNDO_LIST_LEAKS"))
+                    assert(!leaks);
+
+                dbgtracef("----- UNDO_LIST leaks: %u -----", leaks);
+
+#ifdef INCLUDE_CALLSTACKS
+                char stack[4096];
+                for (const auto alloc : m_allocated)
+                {
+                    if (!alloc.second->m_seen)
+                    {
+                        alloc.second->m_seen = true;
+                        stack[0] = '\0';
+                        format_frames(alloc.second->m_alloc_frames_count, alloc.second->m_alloc_frames, alloc.second->m_alloc_frames_hash, stack, sizeof(stack), false);
+                        dbgtracef("Leak:  0x%p (#%u),  text \"%s\",  context: %s", alloc.first, alloc.second->m_num, alloc.first->text ? alloc.first->text : "(nullptr)", stack);
+                    }
+                }
+                dbgtracef("----- end of UNDO_LIST leaks -----");
+#endif
+            }
+            else
+            {
+                dbgtracef("----- UNDO_LIST leaks: %u; can't reset undo_entry_heap -----", leaks);
+            }
+        }
+        else
+        {
+            dbg_ignore_scope(snapshot, "undo_entry_heap");
+
+            m_allocated.clear();
+            m_heap.clear();
+        }
+    }
+
+private:
+    linear_allocator m_heap;
+    std::unordered_map<const UNDO_LIST*, tracker*> m_allocated;
+
+    static uint32 s_num;
+};
+
+static undo_entry_heap s_undo_entry_heap;
+uint32 undo_entry_heap::s_num = 0;
+
+extern "C" UNDO_LIST* clink_alloc_undo_entry(void)
+{
+    return s_undo_entry_heap.alloc_undo_entry();
+}
+
+extern "C" void clink_free_undo_entry(UNDO_LIST* p)
+{
+    s_undo_entry_heap.free_undo_entry(p);
+}
+
+extern "C" void clink_check_undo_entry_leaks(void)
+{
+    s_undo_entry_heap.check_undo_entry_leaks();
+}
+#endif // UNDO_LIST_HEAP_DIAGNOSTICS
 
 
 
@@ -956,6 +1118,11 @@ void cua_after_command(bool force_clear)
         // No action after some special commands.
         s_map.emplace(show_rl_help);
         s_map.emplace(show_rl_help_raw);
+        s_map.emplace(rl_dump_functions);
+        s_map.emplace(rl_dump_macros);
+        s_map.emplace(rl_dump_variables);
+        s_map.emplace(clink_dump_functions);
+        s_map.emplace(clink_dump_macros);
     }
 
     // If not a recognized command, clear the cua selection.
@@ -1015,6 +1182,20 @@ int32 cua_forward_word(int32 count, int32 invoking_key)
 {
     cua_selection_manager mgr;
     return rl_forward_word(count, invoking_key);
+}
+
+//------------------------------------------------------------------------------
+int32 cua_backward_bigword(int32 count, int32 invoking_key)
+{
+    cua_selection_manager mgr;
+    return rl_vi_bWord(count, invoking_key);
+}
+
+//------------------------------------------------------------------------------
+int32 cua_forward_bigword(int32 count, int32 invoking_key)
+{
+    cua_selection_manager mgr;
+    return clink_forward_bigword(count, invoking_key);
 }
 
 //------------------------------------------------------------------------------
@@ -1125,6 +1306,23 @@ another_word:
     }
 
     return rl_forward_word(count, invoking_key);
+}
+
+//------------------------------------------------------------------------------
+int32 clink_forward_bigword(int32 count, int32 invoking_key)
+{
+    if (count != 0)
+    {
+another_word:
+        if (insert_suggestion(suggestion_action::insert_next_full_word))
+        {
+            count--;
+            if (count > 0)
+                goto another_word;
+        }
+    }
+
+    return rl_vi_fWord(count, invoking_key);
 }
 
 //------------------------------------------------------------------------------

@@ -16,6 +16,7 @@
 #include "clink_ctrlevent.h"
 #include "clink_rl_signal.h"
 #include "line_editor_integration.h"
+#include "suggestions.h"
 #include "recognizer.h"
 
 #include <core/base.h>
@@ -28,7 +29,6 @@
 #include <terminal/terminal_out.h>
 #include <terminal/input_idle.h>
 #include <rl/rl_commands.h>
-#include <rl/rl_suggestions.h>
 extern "C" {
 #include <compat/config.h>
 #include <readline/readline.h>
@@ -285,6 +285,10 @@ void line_editor_impl::begin_line()
     clear_flag(~flag_init);
     set_flag(flag_editing);
 
+#ifdef DEBUG
+    m_signaled = false;
+#endif
+
     m_bind_resolver.reset();
     m_command_offset = 0;
     m_prev_key.reset();
@@ -380,10 +384,10 @@ void line_editor_impl::set_input_idle(input_idle* idle)
 }
 
 //------------------------------------------------------------------------------
-void line_editor_impl::set_prompt(const char* prompt, const char* rprompt, bool redisplay)
+void line_editor_impl::set_prompt(const char* prompt, const char* rprompt, bool redisplay, bool transient)
 {
     m_desc.prompt = prompt;
-    m_module.set_prompt(prompt, rprompt, redisplay);
+    m_module.set_prompt(prompt, rprompt, redisplay, transient);
 }
 
 //------------------------------------------------------------------------------
@@ -474,11 +478,7 @@ bool line_editor_impl::update()
 
     update_input();
 
-    if (clink_maybe_handle_signal())
-    {
-        m_buffer.reset();
-        end_line();
-    }
+    maybe_handle_signal();
 
     if (!check_flag(flag_editing))
         return false;
@@ -690,19 +690,8 @@ void line_editor_impl::set_keyseq_len(int32 len)
 // to help dispatch() be able to dispatch an entire chord.
 bool line_editor_impl::update_input()
 {
-    if (clink_is_signaled())
-    {
-        const int32 sig = clink_is_signaled();
-        for (auto* module : m_modules)
-            module->on_signal(sig);
-        m_buffer.reset();
-        if (!m_dispatching)
-        {
-            clink_maybe_handle_signal();
-            end_line();
-        }
+    if (maybe_handle_signal())
         return true;
-    }
 
     if (!m_module.is_input_pending())
     {
@@ -1005,7 +994,7 @@ void line_editor_impl::classify()
         rl_end = g_suggestion_offset;
 
     // Skip parsing if the line buffer hasn't changed.
-    const bool plain = !!RL_ISSTATE(RL_STATE_NSEARCH);
+    const bool plain = !!RL_ISSTATE(RL_STATE_NSEARCH|RL_STATE_READSTR);
     if (m_prev_plain == plain && m_prev_classify.equals(m_buffer.get_buffer(), m_buffer.get_length()))
         return;
 
@@ -1107,7 +1096,7 @@ void line_editor_impl::maybe_send_oncommand_event()
             break;
         }
     }
-    if (!p)
+    if (!p || !p->length)
         return;
 
     const word& info = *p;
@@ -1150,7 +1139,7 @@ void line_editor_impl::maybe_send_oncommand_event()
         bool ready;
         str<> file;
         const recognition recognized = recognize_command(line.get_line(), lookup, quoted, ready, &file);
-        if (!ready)
+        if (!ready || recognized == recognition::unknown)
             return;
 
         m_desc.callbacks->send_oncommand_event(line, lookup, quoted, recognized, file.c_str());
@@ -1229,6 +1218,34 @@ void line_editor_impl::clear_flag(uint8 flag)
 bool line_editor_impl::check_flag(uint8 flag) const
 {
     return ((m_flags & flag) != 0);
+}
+
+//------------------------------------------------------------------------------
+bool line_editor_impl::maybe_handle_signal()
+{
+    if (m_dispatching)
+    {
+        const int32 sig = clink_is_signaled();
+        return !!sig;
+    }
+    else
+    {
+        const int32 sig = clink_maybe_handle_signal();
+        if (!sig)
+            return false;
+
+#ifdef DEBUG
+        assert(!m_signaled);
+        m_signaled = true;
+#endif
+
+        for (auto* module : m_modules)
+            module->on_signal(sig);
+        m_buffer.reset();
+
+        end_line();
+        return true;
+    }
 }
 
 //------------------------------------------------------------------------------

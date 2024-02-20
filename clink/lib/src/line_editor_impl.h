@@ -58,7 +58,7 @@ public:
     virtual void        set_generator(match_generator& generator) override;
     virtual void        set_classifier(word_classifier& classifier) override;
     virtual void        set_input_idle(input_idle* idle) override;
-    virtual void        set_prompt(const char* prompt, const char* rprompt, bool redisplay) override;
+    virtual void        set_prompt(const char* prompt, const char* rprompt, bool redisplay, bool transient=false) override;
     virtual bool        get_line(str_base& out) override;
     virtual bool        edit(str_base& out, bool edit=true) override;
     virtual void        override_line(const char* line, const char* needle, int32 point) override;
@@ -133,6 +133,7 @@ private:
     void                set_flag(uint8 flag);
     void                clear_flag(uint8 flag);
     bool                check_flag(uint8 flag) const;
+    bool                maybe_handle_signal();
 
     static bool         is_key_same(const key_t& prev_key, const char* prev_line, int32 prev_length,
                                     const key_t& next_key, const char* next_line, int32 next_length,
@@ -179,6 +180,7 @@ private:
 
 #ifdef DEBUG
     bool                m_in_matches_ready = false;
+    bool                m_signaled = false;
 #endif
 
     const char*         m_insert_on_begin = nullptr;

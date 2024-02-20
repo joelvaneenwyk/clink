@@ -136,7 +136,7 @@ int hooked_fwrite(const void* data, int size, int count, FILE* stream)
 }
 
 //------------------------------------------------------------------------------
-void hooked_fprintf(FILE* stream, const char* format, ...)
+int hooked_fprintf(FILE* stream, const char* format, ...)
 {
     char buffer[2048];
     va_list v;
@@ -147,6 +147,7 @@ void hooked_fprintf(FILE* stream, const char* format, ...)
 
     buffer[sizeof_array(buffer) - 1] = '\0';
     hooked_fwrite(buffer, (int)strlen(buffer), 1, stream);
+    return 0;
 }
 
 //------------------------------------------------------------------------------
@@ -158,10 +159,11 @@ int hooked_putc(int c, FILE* stream)
 }
 
 //------------------------------------------------------------------------------
-void hooked_fflush(FILE* stream)
+int hooked_fflush(FILE* stream)
 {
     if (rl_fflush_function != NULL)
         (*rl_fflush_function)(stream);
+    return 0;
 }
 
 //------------------------------------------------------------------------------
@@ -336,7 +338,6 @@ void wait_for_input(unsigned long timeout)
 }
 
 //------------------------------------------------------------------------------
-#if !defined (HAVE_GETTIMEOFDAY) && defined (_WIN32)
 typedef unsigned long long uint64_t;
 int gettimeofday(struct timeval * tp, struct timezone * tzp)
 {
@@ -358,4 +359,10 @@ int gettimeofday(struct timeval * tp, struct timezone * tzp)
     tp->tv_usec = (long) (system_time.wMilliseconds * 1000);
     return 0;
 }
-#endif
+
+//------------------------------------------------------------------------------
+static const char* s_trick_the_linker = 0;
+void prevent_COMDAT_folding(const char* str)
+{
+    s_trick_the_linker = str;
+}

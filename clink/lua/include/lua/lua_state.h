@@ -18,6 +18,7 @@ struct lua_State;
 class str_base;
 class line_state;
 class terminal_in;
+class terminal_out;
 typedef double lua_Number;
 
 #define LUA_SELF    (1)
@@ -61,6 +62,8 @@ DEFINE_ENUM_FLAG_OPERATORS(lua_state_flags);
 //------------------------------------------------------------------------------
 class lua_state
 {
+    friend void lua_load_script_impl(lua_state& state, const char* path, int32 length);
+
 public:
                     lua_state(lua_state_flags flags=lua_state_flags::none);
                     ~lua_state();
@@ -94,6 +97,9 @@ public:
     static bool     is_in_luafunc() { return s_in_luafunc; }
     static bool     is_in_onfiltermatches() { return s_in_onfiltermatches; }
     static bool     is_interpreter() { return s_interpreter; }
+    static bool     is_internal() { return s_internal; }
+
+    static void     set_internal(bool internal) { s_internal = internal; }
 
     static uint32   save_global_states(bool new_coroutine);
     static void     restore_global_states(uint32 states);
@@ -102,6 +108,7 @@ private:
     static bool     send_event_internal(lua_State* L, const char* event_name, const char* event_mechanism, int32 nargs=0, int32 nret=0);
     lua_State*      m_state;
 
+    static bool     s_internal;
     static bool     s_interpreter;
     static bool     s_in_luafunc;
     static bool     s_in_onfiltermatches;
@@ -131,8 +138,9 @@ private:
 
 //------------------------------------------------------------------------------
 void get_lua_srcinfo(lua_State* L, str_base& out);
-void set_lua_terminal_input(terminal_in* in);
+void set_lua_terminal(terminal_in* in, terminal_out* out);
 terminal_in* get_lua_terminal_input();
+terminal_out* get_lua_terminal_output();
 
 //------------------------------------------------------------------------------
 // Dumps from pos to top of stack (use negative pos for relative position, use

@@ -21,8 +21,7 @@
 #include "sticky_search.h"
 #include "line_editor_integration.h"
 #include "rl_integration.h"
-
-#include "rl_suggestions.h"
+#include "suggestions.h"
 
 #include <core/base.h>
 #include <core/os.h>
@@ -66,6 +65,7 @@ extern char* tgetstr(const char*, char**);
 extern int32 tputs(const char* str, int32 affcnt, int32 (*putc_func)(int32));
 extern char* tgoto(const char* base, int32 x, int32 y);
 extern Keymap _rl_dispatching_keymap;
+extern int _rl_default_init_file_optional_set;
 }
 
 //------------------------------------------------------------------------------
@@ -93,10 +93,12 @@ const int32 RL_MORE_INPUT_STATES = (RL_STATE_READCMD|
                                     RL_STATE_INPUTPENDING|
                                     RL_STATE_VIMOTION|
                                     RL_STATE_MULTIKEY|
-                                    RL_STATE_CHARSEARCH);
+                                    RL_STATE_CHARSEARCH|
+                                    RL_STATE_READSTR);
 const int32 RL_SIMPLE_INPUT_STATES = (RL_STATE_MOREINPUT|
                                       RL_STATE_NSEARCH|
-                                      RL_STATE_CHARSEARCH);
+                                      RL_STATE_CHARSEARCH|
+                                      RL_STATE_READSTR);
 
 extern "C" {
 extern void         (*rl_fwrite_function)(FILE*, const char*, int);
@@ -169,6 +171,16 @@ static setting_color g_color_cmd(
     "color.cmd",
     "Shell command completions",
     "Used when Clink displays shell (CMD.EXE) command completions.",
+    "bold");
+
+static setting_color g_color_cmdredir(
+    "color.cmdredir",
+    "Color for < and > redirection symbols",
+    "bold");
+
+static setting_color g_color_cmdsep(
+    "color.cmdsep",
+    "Color for & and | command separators",
     "bold");
 
 static setting_color g_color_description(
@@ -651,8 +663,17 @@ static int32 terminal_read_thunk(FILE* stream)
 {
     if (stream == in_stream)
     {
-        assert(s_processed_input);
-        return s_processed_input->read();
+        if (RL_ISSTATE(RL_STATE_READSTR))
+        {
+            assert(s_direct_input);
+            s_direct_input->select();
+            return s_direct_input->read();
+        }
+        else
+        {
+            assert(s_processed_input);
+            return s_processed_input->read();
+        }
     }
 
     if (stream == null_stream)
@@ -1121,6 +1142,12 @@ bool can_suggest_internal(const line_state& line)
 void suppress_suggestions()
 {
     s_suggestion.suppress_suggestions();
+}
+
+//------------------------------------------------------------------------------
+bool has_suggestion()
+{
+    return s_suggestion.has_suggestion();
 }
 
 //------------------------------------------------------------------------------
@@ -1786,59 +1813,34 @@ static void init_readline_hooks()
     // Macro hooks (for "luafunc:" support).
     rl_macro_hook_func = macro_hook_func;
     rl_last_func_hook_func = last_func_hook_func;
-}
 
-//------------------------------------------------------------------------------
-static bool is_ok_inputrc(const char* default_inputrc)
-{
-    // The "default_inputrc" file was introduced in v1.3.5, but up through
-    // v1.6.0 it wasn't actually loaded properly.  And the provided one had
-    // syntax errors, so the fix in v1.6.1 is careful to avoid loading the
-    // default_inputrc file if it contains only the syntax error lines.
+    // Recognize both / and \\ as path separators, and normalize to \\.
+    rl_backslash_path_sep = 1;
+    rl_preferred_path_separator = PATH_SEP[0];
 
-    static const char* const c_oops[] =
-    {
-        "colored-completion-prefix",
-        "colored-stats",
-        "mark-symlinked-directories",
-        "completion-auto-query-items",
-        "history-point-at-end-of-anchored-search",
-        "search-ignore-case",
-    };
+    // Quote spaces in completed filenames.
+    rl_completer_quote_characters = "\"";
+    rl_basic_quote_characters = "\"";
 
-    FILE* f = fopen(default_inputrc, "r");
-    if (!f)
-        return true;
+    // Same list CMD uses for quoting filenames.
+    rl_filename_quote_characters = " &()[]{}^=;!%'+,`~";
 
-    char buffer[128];
-    while (fgets(buffer, sizeof_array(buffer), f))
-    {
-        bool found = false;
-        size_t len = strlen(buffer);
-        while (len && strchr("\r\n", buffer[len - 1]))
-            buffer[--len] = '\0';
-        if (!buffer[0] || strchr("#\r\n", buffer[0]))
-            continue;
-        for (const char* oops : c_oops)
-        {
-            const size_t oops_len = strlen(oops);
-            if (len >= oops_len && strnicmp(oops, buffer, oops_len) == 0)
-            {
-                found = true;
-                break;
-            }
-        }
-        if (!found)
-        {
-            fclose(f);
-            return true;
-        }
-    }
-    fclose(f);
+    // Basic word break characters.
+    // Readline does not currently use rl_basic_word_break_characters or
+    // rl_basic_word_break_characters_without_backslash for anything.
 
-    // The file contains only the specific syntax errors from the original
-    // default_inputrc mistake.  Don't load it.
-    return false;
+    // Completer word break characters -- rl_basic_word_break_characters, with
+    // backslash removed (because rl_backslash_path_sep) and without '$' or '%'
+    // so we can let the match generators decide when '%' should start a word or
+    // end a word (see :getwordbreakinfo()).
+    // NOTE:  Due to adjust_completion_word(), this has no practical effect
+    // anymore.  Word break characters are handled by cmd_word_tokeniser.
+    rl_completer_word_break_characters = " \t\n\"'`@><=;|&{(,"; /* }) */
+
+    // Completion and match display.
+    rl_ignore_completion_duplicates = 0; // We'll handle de-duplication.
+    rl_sort_completion_matches = 0; // We'll handle sorting.
+
 }
 
 //------------------------------------------------------------------------------
@@ -2059,19 +2061,26 @@ void initialise_readline(const char* shell_name, const char* state_dir, const ch
     {
         s_rl_initialized = true;
 
-        static str_moveable s_default_inputrc;
-        if (is_ok_inputrc(default_inputrc))
-            s_default_inputrc = default_inputrc;
+        static str_moveable s_default_inputrc(default_inputrc);
         _rl_default_init_file = s_default_inputrc.empty() ? nullptr : s_default_inputrc.c_str();
+
+        // The "default_inputrc" file was introduced in v1.3.5, but up through
+        // v1.6.0 it wasn't actually loaded properly.  And the provided one
+        // had syntax errors (missing the "set" keyword), so to compensate now
+        // the "set" keyword is optional in the "default_inputrc" file.
+        _rl_default_init_file_optional_set = 1;
 
         init_readline_hooks();
 
         clink_add_funmap_entry("clink-accept-suggested-line", clink_accept_suggested_line, keycat_misc, "If there is a suggestion, insert the suggested line and accept the input line");
+        clink_add_funmap_entry("clink-backward-bigword", rl_vi_bWord, keycat_cursor, "Move back to the start of the current or previous space delimited word");
         clink_add_funmap_entry("clink-complete-numbers", clink_complete_numbers, keycat_completion, "Perform completion using numbers from the current screen");
         clink_add_funmap_entry("clink-copy-cwd", clink_copy_cwd, keycat_misc, "Copies the current working directory to the clipboard");
         clink_add_funmap_entry("clink-copy-line", clink_copy_line, keycat_misc, "Copies the input line to the clipboard");
         clink_add_funmap_entry("clink-copy-word", clink_copy_word, keycat_misc, "Copies the word at the cursor point to the clipboard, or copies the Nth word if a numeric argument is provided");
         clink_add_funmap_entry("clink-ctrl-c", clink_ctrl_c, keycat_basic, "Copies any selected text to the clipboard, otherwise cancels the input line and starts a new one");
+        clink_add_funmap_entry("clink-dump-functions", clink_dump_functions, keycat_misc, "Print all of the functions and their key bindings.  If a numeric argument is supplied, formats the output so that it can be made part of an INPUTRC file");
+        clink_add_funmap_entry("clink-dump-macros", clink_dump_macros, keycat_misc, "Print all of the key names bound to macros and the strings they output.  If a numeric argument is supplied, formats the output so that it can be made part of an INPUTRC file");
         clink_add_funmap_entry("clink-exit", clink_exit, keycat_misc, "Replaces the input line with 'exit' and executes it (exits the CMD instance)");
         clink_add_funmap_entry("clink-expand-doskey-alias", clink_expand_doskey_alias, keycat_misc, "Expands doskey aliases in the input line");
         clink_add_funmap_entry("clink-expand-env-var", clink_expand_env_var, keycat_misc, "Expands environment variables in the word at the cursor point");
@@ -2079,6 +2088,7 @@ void initialise_readline(const char* shell_name, const char* state_dir, const ch
         clink_add_funmap_entry("clink-expand-history-and-alias", clink_expand_history_and_alias, keycat_misc, "Performs history and doskey alias expansion in the input line");
         clink_add_funmap_entry("clink-expand-line", clink_expand_line, keycat_misc, "Performs history, doskey alias, and environment variable expansion in the input line");
         clink_add_funmap_entry("clink-find-conhost", clink_find_conhost, keycat_misc, "Invokes the 'Find...' command in a standalone CMD window");
+        clink_add_funmap_entry("clink-forward-bigword", clink_forward_bigword, keycat_cursor, "Move forward to the beginning of the next space delimited word, or insert the next full suggested word up to a space");
         clink_add_funmap_entry("clink-insert-dot-dot", clink_insert_dot_dot, keycat_misc, "Inserts '..\\' at the cursor point");
         clink_add_funmap_entry("clink-insert-suggested-full-word", clink_insert_suggested_full_word, keycat_misc, "If there is a suggestion, insert the next full word from the suggested line");
         clink_add_funmap_entry("clink-insert-suggested-line", clink_insert_suggested_line, keycat_misc, "If there is a suggestion, insert the suggested line");
@@ -2095,7 +2105,7 @@ void initialise_readline(const char* shell_name, const char* state_dir, const ch
         clink_add_funmap_entry("clink-popup-complete-numbers", clink_popup_complete_numbers, keycat_completion, "Perform interactive completion from a list of numbers from the current screen");
         clink_add_funmap_entry("clink-popup-directories", clink_popup_directories, keycat_misc, "Show recent directories in a popup list.  In the popup, use Enter to 'cd /d' to the selected directory");
         clink_add_funmap_entry("clink-popup-history", clink_popup_history, keycat_history, "Show history entries in a popup list.  Filters using any text before the cursor point.  In the popup, use Enter to execute the selected history entry");
-        clink_add_funmap_entry("clink-popup-show-help", clink_popup_show_help, keycat_misc, "Show all key bindings in a searchable popup list.  In the popup, use Enter to invoke the selected key binding");
+        clink_add_funmap_entry("clink-popup-show-help", clink_popup_show_help, keycat_misc, "Show all key bindings in a searchable popup list.  In the popup, use Enter to invoke the selected key binding.  If a numeric argument of 4 is supplied, includes unbound commands");
         clink_add_funmap_entry("clink-reload", clink_reload, keycat_misc, "Reload Lua scripts and the .inputrc file");
         clink_add_funmap_entry("clink-reset-line", clink_reset_line, keycat_basic, "Clear the input line.  Can be undone, unlike 'revert-line'");
         clink_add_funmap_entry("clink-scroll-bottom", clink_scroll_bottom, keycat_scroll, "Scroll to the bottom of the terminal's scrollback buffer");
@@ -2107,16 +2117,18 @@ void initialise_readline(const char* shell_name, const char* state_dir, const ch
         clink_add_funmap_entry("clink-select-complete", clink_select_complete, keycat_completion, "Perform completion by selecting from an interactive list of possible completions; if there is only one match, insert it");
         clink_add_funmap_entry("clink-selectall-conhost", clink_selectall_conhost, keycat_misc, "Invokes the 'Select All' command in a standalone CMD window");
         clink_add_funmap_entry("clink-shift-space", clink_shift_space, keycat_misc, "Invoke the normal Space key binding, so that Shift-Space behaves the same as Space");
-        clink_add_funmap_entry("clink-show-help", show_rl_help, keycat_misc, "Show all key bindings.  A numeric argument affects showing categories and descriptions");
+        clink_add_funmap_entry("clink-show-help", show_rl_help, keycat_misc, "Show all key bindings.  A numeric argument affects showing categories and descriptions:  0=neither, 1=categories, 2=descriptions, 3=both (default).  Add 4 to include unbound commands");
         clink_add_funmap_entry("clink-show-help-raw", show_rl_help_raw, keycat_misc, "Show raw key sequence strings for all key bindings");
         clink_add_funmap_entry("clink-up-directory", clink_up_directory, keycat_misc, "Execute 'cd ..' to move up one directory");
         clink_add_funmap_entry("clink-what-is", clink_what_is, keycat_misc, "Show the key binding for the next key sequence input.  If a numeric argument is supplied, the raw key sequence string is shown instead of the friendly key name");
+        clink_add_funmap_entry("cua-backward-bigword", cua_backward_bigword, keycat_select, "Extend the selection backward one space delimited word");
         clink_add_funmap_entry("cua-backward-char", cua_backward_char, keycat_select, "Extend the selection backward one character");
         clink_add_funmap_entry("cua-backward-word", cua_backward_word, keycat_select, "Extend the selection backward one word");
         clink_add_funmap_entry("cua-beg-of-line", cua_beg_of_line, keycat_select, "Extend selection to the beginning of the line");
         clink_add_funmap_entry("cua-copy", cua_copy, keycat_select, "Copy the selected text to the clipboard");
         clink_add_funmap_entry("cua-cut", cua_cut, keycat_select, "Cut the selected text to the clipboard");
         clink_add_funmap_entry("cua-end-of-line", cua_end_of_line, keycat_select, "Extend the selection to the end of the line");
+        clink_add_funmap_entry("cua-forward-bigword", cua_forward_bigword, keycat_select, "Extend the selection forward one space delimited word, or insert the next full suggested word up to a space");
         clink_add_funmap_entry("cua-forward-char", cua_forward_char, keycat_select, "Extend the selection forward one character, or insert the next full suggested word up to a space");
         clink_add_funmap_entry("cua-forward-word", cua_forward_word, keycat_select, "Extend the selection forward one word");
         clink_add_funmap_entry("cua-next-screen-line", cua_next_screen_line, keycat_select, "Extend the selection down one screen line");
@@ -2459,33 +2471,6 @@ rl_module::rl_module(terminal_in* input)
     init_readline_hooks();
 
     _rl_eof_char = g_ctrld_exits.get() ? CTRL('D') : -1;
-
-    // Recognize both / and \\ as path separators, and normalize to \\.
-    rl_backslash_path_sep = 1;
-    rl_preferred_path_separator = PATH_SEP[0];
-
-    // Quote spaces in completed filenames.
-    rl_completer_quote_characters = "\"";
-    rl_basic_quote_characters = "\"";
-
-    // Same list CMD uses for quoting filenames.
-    rl_filename_quote_characters = " &()[]{}^=;!%'+,`~";
-
-    // Basic word break characters.
-    // Readline does not currently use rl_basic_word_break_characters or
-    // rl_basic_word_break_characters_without_backslash for anything.
-
-    // Completer word break characters -- rl_basic_word_break_characters, with
-    // backslash removed (because rl_backslash_path_sep) and without '$' or '%'
-    // so we can let the match generators decide when '%' should start a word or
-    // end a word (see :getwordbreakinfo()).
-    // NOTE:  Due to adjust_completion_word(), this has no practical effect
-    // anymore.  Word break characters are handled by cmd_word_tokeniser.
-    rl_completer_word_break_characters = " \t\n\"'`@><=;|&{(,"; /* }) */
-
-    // Completion and match display.
-    rl_ignore_completion_duplicates = 0; // We'll handle de-duplication.
-    rl_sort_completion_matches = 0; // We'll handle sorting.
 }
 
 //------------------------------------------------------------------------------
@@ -2620,7 +2605,7 @@ bool rl_module::translate(const char* seq, int32 len, str_base& out)
                 return true;
         }
     }
-    else if (RL_ISSTATE(RL_STATE_ISEARCH|RL_STATE_NSEARCH))
+    else if (RL_ISSTATE(RL_STATE_ISEARCH|RL_STATE_NSEARCH|RL_STATE_READSTR))
     {
         if (strcmp(seq, bindableEsc) == 0)
         {
@@ -2652,7 +2637,14 @@ void rl_module::set_keyseq_len(int32 len)
 }
 
 //------------------------------------------------------------------------------
-void rl_module::set_prompt(const char* prompt, const char* rprompt, bool redisplay)
+static void suppress_redisplay()
+{
+    // Do nothing.  This is used to suppress the rl_redisplay_function call in
+    // rl_message when set_prompt restores the readstr message prompt.
+}
+
+//------------------------------------------------------------------------------
+void rl_module::set_prompt(const char* prompt, const char* rprompt, bool redisplay, bool transient)
 {
     redisplay = redisplay && (g_rl_buffer && g_printer);
 
@@ -2739,8 +2731,35 @@ void rl_module::set_prompt(const char* prompt, const char* rprompt, bool redispl
     }
 
     // Update the prompt.
-    rl_set_prompt(m_rl_prompt.c_str());
-    rl_set_rprompt(m_rl_rprompt.c_str());
+    if (transient)
+    {
+        // Make sure no mode strings in the transient prompt.
+        rollback<char*> ems(_rl_emacs_mode_str, const_cast<char*>(""));
+        rollback<char*> vims(_rl_vi_ins_mode_str, const_cast<char*>(""));
+        rollback<char*> vcms(_rl_vi_cmd_mode_str, const_cast<char*>(""));
+        rollback<int32> eml(_rl_emacs_modestr_len, 0);
+        rollback<int32> viml(_rl_vi_ins_modestr_len, 0);
+        rollback<int32> vcml(_rl_vi_cmd_modestr_len, 0);
+        rollback<int32> mml(_rl_mark_modified_lines, 0);
+        rollback<bool> dmncr(g_display_manager_no_comment_row, true);
+
+        rl_set_prompt(m_rl_prompt.c_str());
+        rl_set_rprompt(m_rl_rprompt.c_str());
+    }
+    else
+    {
+        rl_set_prompt(m_rl_prompt.c_str());
+        rl_set_rprompt(m_rl_rprompt.c_str());
+    }
+
+    // Restore message during RL_STATE_READSTR.
+    if (RL_ISSTATE(RL_STATE_READSTR))
+    {
+        rollback<rl_voidfunc_t*> rdf(rl_redisplay_function, suppress_redisplay);
+        char* p = _rl_make_prompt_for_search(_rl_readstr_pchar);
+        rl_message("%s", p);
+        xfree(p);
+    }
 
     // Display the prompt.
     if (redisplay)
@@ -2954,8 +2973,9 @@ void rl_module::on_end_line()
     _rl_arginfo_color = nullptr;
     _rl_selected_color = nullptr;
 
-    // This prevents any partial Readline state leaking from one line to the next
-    assert(!RL_ISSTATE(RL_RESET_STATES));
+    // This prevents any partial Readline state leaking from one line to the
+    // next.  One case where this is necessary is CTRL-BREAK (not CTRL-C) at
+    // the pager's "-- More --" prompt.
     RL_UNSETSTATE(RL_RESET_STATES);
 
     g_rl_buffer = nullptr;
@@ -3140,6 +3160,13 @@ void rl_module::on_input(const input& input, result& result, const context& cont
     g_result = nullptr;
     s_matches = nullptr;
 
+    if (is_force_reload_scripts())
+    {
+        end_prompt(false);
+        reset_cached_font(); // Force discarding cached font info.
+        readline_internal_teardown(true);
+    }
+
     if (m_done)
     {
         result.done(m_eof);
@@ -3188,4 +3215,5 @@ void rl_module::on_terminal_resize(int32, int32, const context& context)
 //------------------------------------------------------------------------------
 void rl_module::on_signal(int32 sig)
 {
+    rl_callback_handler_remove();
 }

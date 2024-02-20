@@ -72,7 +72,11 @@ alloc_undo_entry (enum undo_code what, int start, int end, char *text)
 {
   UNDO_LIST *temp;
 
+#ifdef UNDO_LIST_HEAP_DIAGNOSTICS
+  temp = clink_alloc_undo_entry();
+#else
   temp = (UNDO_LIST *)xmalloc (sizeof (UNDO_LIST));
+#endif
   temp->what = what;
   temp->start = start;
   temp->end = end;
@@ -111,7 +115,13 @@ _rl_free_undo_list (UNDO_LIST *ul)
       if (release->what == UNDO_DELETE)
 	xfree (release->text);
 
+#ifdef UNDO_LIST_HEAP_DIAGNOSTICS
+      if (release->what == UNDO_DELETE)
+	release->text = 0;
+      clink_free_undo_entry(release);
+#else
       xfree (release);
+#endif
     }
 }
 
@@ -119,12 +129,14 @@ _rl_free_undo_list (UNDO_LIST *ul)
 void
 rl_free_undo_list (void)
 {
-  UNDO_LIST *release, *orig_list;
+  UNDO_LIST *orig_list;
 
   orig_list = rl_undo_list;
   _rl_free_undo_list (rl_undo_list);
   rl_undo_list = (UNDO_LIST *)NULL;
   _hs_replace_history_data (-1, (histdata_t *)orig_list, (histdata_t *)NULL);
+  if (_rl_saved_line_for_history && (UNDO_LIST *)_rl_saved_line_for_history->data == orig_list)
+    _rl_saved_line_for_history->data = 0;
 }
 
 UNDO_LIST *
@@ -268,7 +280,13 @@ rl_do_undo (void)
 	    }
 	}
 
+#ifdef UNDO_LIST_HEAP_DIAGNOSTICS
+      if (release->what == UNDO_DELETE)
+	release->text = 0;
+      clink_free_undo_entry(release);
+#else
       xfree (release);
+#endif
     }
   while (waiting_for_begin);
 

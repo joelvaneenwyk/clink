@@ -59,6 +59,10 @@
 
 static bool get_funky_string (char **dest, const char **src, bool equals_end, size_t *output_count);
 
+/* begin_clink_change */
+const char* const c_default_completion_prefix_color = "01;35";
+/* end_clink_change */
+
 struct bin_str _rl_color_indicator[] =
   {
     { LEN_STR_PAIR ("\033[") },         //  lc: Left of color sequence
@@ -316,6 +320,10 @@ static_assert (C_LINK == 7, "C_LINK is not the expected index");
 
   if (!saved)
     {
+      /* Initialize C_SOCK color with a public constant pointer so it's
+	 possible to detect whether it's been overridden by LS_COLORS. */
+      _rl_color_indicator[C_SOCK].len = strlen (c_default_completion_prefix_color);
+      _rl_color_indicator[C_SOCK].string = c_default_completion_prefix_color;
       memcpy (original, _rl_color_indicator, sizeof(original));
       saved = 1;
       return;
@@ -324,15 +332,41 @@ static_assert (C_LINK == 7, "C_LINK is not the expected index");
   memcpy (_rl_color_indicator, original, sizeof(original));
 
   free (color_buf);
-  color_buf = NULL;
+  color_buf = 0;
+
   for (e = _rl_color_ext_list; e != NULL; /* empty */)
     {
       e2 = e;
       e = e->next;
       free (e2);
     }
-  _rl_color_ext_list = NULL;
+
+  _rl_color_ext_list = 0;
 }
+/* end_clink_change */
+
+/* begin_clink_change
+ * Use _rl_free_colors() instead, because free_color_ext_list() doesn't free
+ * color_buf, and its callers free color_buf but don't set color_buf = 0. */
+#if 0
+/* end_clink_change */
+static void
+free_color_ext_list (void)
+{
+  COLOR_EXT_TYPE *e;
+  COLOR_EXT_TYPE *e2;
+
+  for (e = _rl_color_ext_list; e != NULL; /* empty */)
+    {
+      e2 = e;
+      e = e->next;
+      free (e2);
+    }
+
+  _rl_color_ext_list = 0;  
+}
+/* begin_clink_change */
+#endif
 /* end_clink_change */
 
 void _rl_parse_colors(void)
@@ -465,27 +499,38 @@ void _rl_parse_colors(void)
 
   if (state < 0)
     {
-/* begin_clink_change */
-      //COLOR_EXT_TYPE *e;
-      //COLOR_EXT_TYPE *e2;
-/* end_clink_change */
 
       _rl_errmsg ("unparsable value for LS_COLORS environment variable");
 /* begin_clink_change */
       //free (color_buf);
-      //for (e = _rl_color_ext_list; e != NULL; /* empty */)
-      //  {
-      //    e2 = e;
-      //    e = e->next;
-      //    free (e2);
-      //  }
-      //_rl_color_ext_list = NULL;
+      //free_color_ext_list ();      
       _rl_free_colors ();
-      _rl_colored_completion_prefix = 0; /* can't have colored completion prefix without colors */
 /* end_clink_change */
+
       _rl_colored_stats = 0;	/* can't have colored stats without colors */
+      _rl_colored_completion_prefix = 0;	/* or colored prefixes */
     }
 #else /* !COLOR_SUPPORT */
   ;
 #endif /* !COLOR_SUPPORT */
+}
+
+void
+rl_reparse_colors (void)
+{
+  char *v;
+
+  v = sh_get_env_value ("LS_COLORS");
+  if (v == 0 && color_buf == 0)
+    return;		/* no change */
+  if (v && color_buf && STREQ (v, color_buf))
+    return;		/* no change */
+
+/* begin_clink_change */
+  //free (color_buf);
+  //free_color_ext_list ();
+  _rl_free_colors ();
+/* end_clink_change */
+
+  _rl_parse_colors ();
 }

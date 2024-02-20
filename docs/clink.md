@@ -141,9 +141,9 @@ There are three main ways of customizing Clink to your preferences:  the [Readli
 
 ## How Completion Works
 
-"Completion" is for the word at the cursor; Clink can complete it for you when you press <kbd>Tab</kbd>.
+"Completion" is for the word at the cursor; when you press <kbd>Tab</kbd> Clink tries to complete the word from a list of possible completions.  Press <kbd>Alt</kbd>-<kbd>=</kbd> to see the list of possible completions.
 
-"Suggestions" are for the whole command line; Clink offers [automatic suggestions](#gettingstarted_autosuggest) for the whole input line, which you can accept by pressing <kbd>Right</kbd> or <kbd>End</kbd>.
+"Suggestions" are for the whole command line; Clink offers an [automatic suggestion](#gettingstarted_autosuggest) for the whole input line, which you can accept by pressing <kbd>Right</kbd> or <kbd>End</kbd>.  There is never more than one automatic suggestion at a time.
 
 Some examples of what completions can offer:
 - File names,
@@ -271,7 +271,7 @@ Key | Windows | Bash
 
 ### Auto-suggest
 
-Clink can suggest commands as you type, based on command history and completions.
+Clink can suggest command lines as you type, based on command history and completions.
 
 You can turn off automatic suggestions with <code>clink set <a href="#autosuggest_enable">autosuggest.enable</a> false</code>, or turn them on with <code>clink set autosuggest.enable true</code>.
 
@@ -289,7 +289,7 @@ Later, you start to type a new command, and it matches the earlier command from 
 
 The muted text shows a suggestion that might be what you intend to type.  You can accept the muted text into the input line by pressing the <kbd>Right</kbd> key.
 
-If you press <kbd>Tab</kbd> then that invokes [completion](#how-completion-works) instead.  Completion is something you manually invoke to offer possible completions for a word or argument position.  Auto-suggestion automatically offers suggestions for a whole input line, and the suggestions can come from the saved command history or from the list of possible completions.
+If you press <kbd>Tab</kbd> then that invokes [completion](#how-completion-works) instead.  Completion is something you manually invoke to offer possible completions for a word or argument position.  Auto-suggestion automatically offers a suggestion for a whole input line, and the suggestion can come from the saved command history or from the list of possible completions.  There can be many possible completions available, but there is never more than one auto-suggestion available.
 
 The [`autosuggest.hint`](#autosuggest_hint) setting controls whether to show the `[Right]=Accept Suggestion` usage hint when a suggestion is available.
 
@@ -472,6 +472,7 @@ Name                         | Default [*](#alternatedefault) | Description
 <a name="color_cmdredir"></a>`color.cmdredir` | `bold` [*](#alternatedefault) | The color for redirection symbols (`<`, `>`, `>&`) in the input line when [`clink.colorize_input`](#clink_colorize_input) is enabled.
 <a name="color_cmdsep"><a/>`color.cmdsep` | `bold` [*](#alternatedefault) | The color for command separators (`&`, `\|`) in the input line when [`clink.colorize_input`](#clink_colorize_input) is enabled.
 <a name="color_comment_row"></a>`color.comment_row` | `bright white on cyan` [*](#alternatedefault) | The color for the comment row.  During [`clink-select-complete`](#rlcmd-clink-select-complete) the comment row shows the "and <em>N</em> more matches" or "rows <em>X</em> to <em>Y</em> of <em>Z</em>" messages.  It can also show how history expansion will be applied at the cursor.
+<a name="color_common_match_prefix"></a>`color.common_match_prefix` | | Used when displaying a prefix that all match completions have in common.  This can be superseded by [Completion Colors](#completioncolors).
 <a name="color_description"></a>`color.description` | `bright cyan` [*](#alternatedefault) | Used when displaying descriptions for match completions.
 <a name="color_doskey"></a>`color.doskey` | `bright cyan` [*](#alternatedefault) | Used when displaying doskey alias completions, and in the input line when [`clink.colorize_input`](#clink_colorize_input) is enabled.
 <a name="color_executable"></a>`color.executable` | [*](#alternatedefault) | When set, this is the color in the input line for a command word that is recognized as an executable file when [`clink.colorize_input`](#clink_colorize_input) is enabled.
@@ -524,6 +525,7 @@ Name                         | Default [*](#alternatedefault) | Description
 <a name="lua_reload_scripts"></a>`lua.reload_scripts` | False | When false, Lua scripts are loaded once and are only reloaded if forced (see [The Location of Lua Scripts](#lua-scripts-location) for details).  When true, Lua scripts are loaded each time the edit prompt is activated.
 <a name="lua_strict"></a>`lua.strict` | True | When enabled, argument errors cause Lua scripts to fail.  This may expose bugs in some older scripts, causing them to fail where they used to succeed. In that case you can try turning this off, but please alert the script owner about the issue so they can fix the script.
 <a name="lua_traceback_on_error"></a>`lua.traceback_on_error` | False | Prints stack trace on Lua errors.
+<a name="match_coloring_rules"></a>`match.coloring_rules` | | Provides a series of color definitions used when displaying match completions.  See [Completion Colors](#completioncolors) for details.
 <a name="match_expand_abbrev"></a>`match.expand_abbrev` | True | Expands an abbreviated path before performing completion.  In an abbreviated path, directory names may be shortened to the minimum number of characters to unambiguously refer to a directory.  For example, "c:\Users\chris\Documents" could be abbreviated as "c:\U\c\Do", depending on what directories exist in the file system.
 <a name="match_expand_envvars"></a>`match.expand_envvars` | False [*](#alternatedefault) | Expands environment variables in a word before performing completion.
 <a name="match_fit_columns"></a>`match.fit_columns` | True | When displaying match completions, this calculates column widths to fit as many as possible on the screen.
@@ -537,6 +539,7 @@ Name                         | Default [*](#alternatedefault) | Description
 <a name="match_translate_slashes"></a>`match.translate_slashes` | `system` | File and directory completions can be translated to use consistent slashes.  The default is `system` to use the appropriate path separator for the OS host (backslashes on Windows).  Use `slash` to use forward slashes, or `backslash` to use backslashes.  Use `off` to turn off translating slashes from custom match generators.
 <a name="match_wild"></a>`match.wild` | True | Matches `?` and `*` wildcards and leading `.` when using any of the completion commands.  Turn this off to behave how bash does, and not match wildcards or leading dots (but [`glob-complete-word`](#rlcmd-glob-complete-word) always matches wildcards).
 <a name="prompt_async"></a>`prompt.async` | True | Enables [asynchronous prompt refresh](#asyncpromptfiltering).  Turn this off if prompt filter refreshes are annoying or cause problems.
+<a name="prompt_spacing"></a>`prompt.spacing` | `normal` | The default is `normal` which never removes or adds blank lines.  Set to `compact` to remove blank lines before the prompt, or set to `sparse` to remove blank lines and then add one blank line.
 <a name="prompt-transient"></a>`prompt.transient` | `off` | Controls when past prompts are collapsed ([transient prompts](#transientprompts)).  `off` = never collapse past prompts, `always` = always collapse past prompts, `same_dir` = only collapse past prompts when the current working directory hasn't changed since the last prompt.
 <a name="readline_hide_stderr"></a>`readline.hide_stderr` | False | Suppresses stderr from the Readline library.  Enable this if Readline error messages are getting in the way.
 <a name="terminal_adjust_cursor_style"></a>`terminal.adjust_cursor_style` | True | When enabled, Clink adjusts the cursor shape and visibility to show Insert Mode, produce the visible bell effect, avoid disorienting cursor flicker, and to support ANSI escape codes that adjust the cursor shape and visibility. But it interferes with the Windows 10 Cursor Shape console setting. You can make the Cursor Shape setting work by disabling this Clink setting (and the features this provides).
@@ -944,7 +947,7 @@ Variable | Description
 <a name="configbellstyle"></a>`bell-style` | Controls what happens when Readline wants to ring the terminal bell. If set to "none", Readline never rings the bell. If set to "visible" (the default in Clink), Readline uses a visible bell if one is available. If set to "audible", Readline attempts to ring the terminal's bell.
 <a name="configlinkmatchingparen"></a>`blink-matching-paren` | If set to "on", Readline attempts to briefly move the cursor to an opening parenthesis when a closing parenthesis is inserted. The default is "off".
 <a name="configcoloredcompletionprefix"></a>`colored-completion-prefix` | If set to "on", when listing completions, Readline displays the common prefix of the set of possible completions using a different color. The color definitions are taken from the value of the [`%LS_COLORS%`](#completioncolors) environment variable. The default is "off".
-<a name="configcoloredstats"></a>`colored-stats` | If set to "on", Readline displays possible completions using different colors to indicate their file type. The color definitions are taken from the value of the [`%LS_COLORS%`](#completioncolors) environment variable. The default is "off".
+<a name="configcoloredstats"></a>`colored-stats` | If set to "on", Readline displays possible completions using different colors to indicate their file type. The color definitions are determined as described in [Completion Colors](#completioncolors). The default is "off", but is automatically overridden by the [`match.coloring_rules`](#match_coloring_rules) setting or the `%CLINK_MATCH_COLORS` environment variable.
 <a name="configcommentbegin"></a>`comment-begin` | The string to insert at the beginning of the line when the [`insert-comment`](#rlcmd-insert-comment) command is executed. The default value is "::".
 <a name="configcompletiondisplaywidth"></a>`completion-display-width` | The number of screen columns used to display possible matches when performing completion. The value is ignored if it is less than 0 or greater than the terminal screen width. A value of 0 will cause matches to be displayed one per line. The default value is -1.
 <a name="configcompletionignorecase"></a>`completion-ignore-case` | If set to "on", Readline performs filename matching and completion in a case-insensitive fashion. The default value is "on".
@@ -1114,12 +1117,22 @@ set show-mode-in-prompt on
 $endif
 ```
 
-The `$if application` construct is used to include application-specific settings. Each program using the Readline library sets the _application name_, and you can test for a particular value. This could be used to bind key sequences to functions useful for a specific program. For instance, the following command adds a key sequence that quotes the current or previous word, but only in Clink:
+The `$if clink` construct is used to include Clink-specific settings. For instance, the following command adds a key sequence that quotes the current or previous word, but only in Clink:
 
 ```inputrc
 $if clink
 # Quote the current or previous word
 "\C-xq": "\eb\"\ef\""
+$endif
+```
+
+<a name="if_clink_version"></a>
+The `$if clink_version` test may be used to perform comparisons against specific Clink versions. The `clink_version` expands to the current Clink version. The set of comparison operators includes `=` (and `==`), `!=`, `<=`, `>=`, `<`, and `>`. The version number supplied on the right side of the operator consists of a major version number, an optional decimal point and minor version, and an optional decimal point and patch version (e.g., "1.6" or "1.6.2"). If the minor or patch versions are omitted, they are assumed to be "0". The operator may be separated from the string `clink_version` and from the version number argument by whitespace. In other applications that use Readline (such as `bash`) or in versions of Clink before v1.6.1, the test is always false.  The following example sets a key binding if the Clink version being used is 1.6.1 or newer:
+
+```inputrc
+$if clink_version >= 1.6.1
+"\C-x\C-f": clink-dump-functions    # This function doesn't exist before Clink 1.6.1,
+                                    # and would print an error in older versions.
 $endif
 ```
 
@@ -1209,6 +1222,20 @@ $endif              # end clink-only section
 
 ## Bindable Commands
 
+<table class="linkmenu">
+<tr><td><a href="#commands-for-moving">Commands For Moving</a></td><td>Common commands for moving the cursor in the command line.</td></tr>
+<tr><td><a href="#commands-for-manipulating-the-history">Commands For Manipulating The History</a></td><td>Common commands for using the command history list.</td></tr>
+<tr><td><a href="#commands-for-changing-text">Commands For Changing Text</a></td><td>Common commands for deleting and inserting text.</td></tr>
+<tr><td><a href="#killing-and-yanking-1">Killing And Yanking</a></td><td>Commands for using the "<a href="#killing-and-yanking">kill ring</a>" (Readline's version of a clipboard).</td></tr>
+<tr><td><a href="#specifying-numeric-arguments">Specifying Numeric Arguments</a></td><td>Commands for inputing numeric arguments to other Readline commands.</td></tr>
+<tr><td><a href="#completion-commands">Completion Commands</a></td><td>Common completion commands.</td></tr>
+<tr><td><a href="#keyboard-macros">Keyboard Macros</a></td><td>Commands for using keyboard macros.</td></tr>
+<tr><td><a href="#some-miscellaneous-commands">Some Miscellaneous Commands</a></td><td>Some commands that aren't commonly used.</td></tr>
+<tr><td><a href="#readline-vi-mode">Readline vi Mode</a></td><td>Commands for toggling vi mode.</td></tr>
+<tr><td><a href="#other-readline-commands">Other Readline Commands</a></td><td>Commands that exist only for .inputrc compatibility with the bash shell.</td></tr>
+<tr><td><a href="#clink-commands"><strong>Clink Commands</strong></a></td><td><strong>Clink adds many new and enhanced commands beyond the basic Readline commands.</strong></td></tr>
+</table>
+
 ### Commands For Moving
 
 Command | Key | Description
@@ -1223,7 +1250,6 @@ Command | Key | Description
 <a name="rlcmd-next-screen-line"></a>`next-screen-line` | | Attempt to move point to the same physical screen column on the next physical screen line. This will not have the desired effect if the current Readline line does not take up more than one physical line or if the length of the current Readline line is not greater than the length of the prompt plus the screen width.
 <a name="rlcmd-clear-display"></a>`clear-display` | <kbd>Alt</kbd>-<kbd>Ctrl</kbd>-<kbd>l</kbd> | Clear the terminal screen and the terminal's scrollback buffer (if possible), then redraw the current line, leaving the current line at the top of the screen.
 <a name="rlcmd-clear-screen"></a>`clear-screen` | <kbd>Ctrl</kbd>-<kbd>l</kbd> | Clear the terminal screen, then redraw the current line, leaving the current line at the top of the screen.
-<a name="rlcmd-redraw-current-line"></a>`redraw-current-line` | | Refresh the current line.
 
 ### Commands For Manipulating The History
 
@@ -1242,7 +1268,7 @@ Command | Key | Description
 <a name="rlcmd-history-search-backward"></a>`history-search-backward` | <kbd>PgUp</kbd> | Search backward through the history for the string of characters between the start of the current line and the point. The search string must match at the beginning of a history line. This is a non-incremental search.
 <a name="rlcmd-history-substring-search-forward"></a>`history-substring-search-forward` | | Search forward through the history for the string of characters between the start of the current line and the point. The search string may match anywhere in a history line. This is a non-incremental search. By default, this command is unbound.
 <a name="rlcmd-history-substring-search-backward"></a>`history-substring-search-backward` | | Search backward through the history for the string of characters between the start of the current line and the point. The search string may match anywhere in a history line. This is a non-incremental search. By default, this command is unbound.
-<a name="rlcmd-yank-nth-arg"></a>`yank-nth-arg` | <kbd>Alt</kbd>-<kbd>Ctrl</kbd>-<kbd>y</kbd> | Insert the first argument to the previous command (usually the second word on the previous line) at point. With an argument _n_, insert the <em>n</em>th word from the previous command (the words in the previous command begin with word 0). A negative argument inserts the <em>n</em>th word from the end of the previous command. Once the argument _n_ is computed, the argument is extracted as if the "!n" history expansion had been specified.
+<a name="rlcmd-yank-nth-arg"></a>`yank-nth-arg` | <kbd>Alt</kbd>-<kbd>Ctrl</kbd>-<kbd>y</kbd> | Insert the first argument to the previous command (usually the second word on the previous line) at point. With an argument _n_, insert the <em>n</em>-th word from the previous command (the words in the previous command begin with word 0). A negative argument inserts the <em>n</em>-th word from the end of the previous command. Once the argument _n_ is computed, the argument is extracted as if the "!n" history expansion had been specified.
 <a name="rlcmd-yank-last-arg"></a>`yank-last-arg` | <kbd>Alt</kbd>-<kbd>.</kbd> or <kbd>Alt</kbd>-<kbd>_</kbd> | Insert last argument to the previous command (the last word of the previous history entry). With a numeric argument, behave exactly like [`yank-nth-arg`](#rlcmd-yank-nth-arg). Successive calls to `yank-last-arg` move back through the history list, inserting the last word (or the word specified by the argument to the first call) of each line in turn. Any numeric argument supplied to these successive calls determines the direction to move through the history. A negative argument switches the direction through the history (back or forward). The history expansion facilities are used to extract the last argument, as if the "!$" history expansion had been specified.
 <a name="rlcmd-operate-and-get-next"></a>`operate-and-get-next` | <kbd>Ctrl</kbd>-<kbd>o</kbd> | Accept the current line for return to the calling application as if a newline had been entered, and fetch the next line relative to the current line from the history for editing. A numeric argument, if supplied, specifies the history entry to use instead of the current line.
 <a name="rlcmd-fetch-history"></a>`fetch-history` | | With a numeric argument, fetch that entry from the history list and make it the current line.  Without an argument, move back to the first entry in the history list.
@@ -1326,9 +1352,12 @@ Command | Key | Description
 <a name="rlcmd-character-search"></a>`character-search` | <kbd>Ctrl</kbd>-<kbd>]</kbd> | A character is read and point is moved to the next occurrence of that character. A negative count searches for previous occurrences.
 <a name="rlcmd-character-search-backward"></a>`character-search-backward` | <kbd>Alt</kbd>-<kbd>Ctrl</kbd>-<kbd>]</kbd> | A character is read and point is moved to the previous occurrence of that character. A negative count searches for subsequent occurrences.
 <a name="rlcmd-insert-comment"></a>`insert-comment` | <kbd>Alt</kbd>-<kbd>#</kbd> | Without a numeric argument, the value of the [`comment-begin`](#configcommentbegin) variable is inserted at the beginning of the current line. If a numeric argument is supplied, this command acts as a toggle: if the characters at the beginning of the line do not match the value of `comment-begin`, the value is inserted, otherwise the characters in `comment-begin` are deleted from the beginning of the line. In either case, the line is accepted as if a newline had been typed.
+<a name="rlcmd-redraw-current-line"></a>`redraw-current-line` | | Refresh the current line.
 <a name="rlcmd-dump-functions"></a>`dump-functions` | | Print all of the functions and their key bindings to the Readline output stream. If a numeric argument is supplied, the output is formatted in such a way that it can be made part of an inputrc file.
 <a name="rlcmd-dump-variables"></a>`dump-variables` | | Print all of the settable variables and their values to the Readline output stream. If a numeric argument is supplied, the output is formatted in such a way that it can be made part of an inputrc file.
 <a name="rlcmd-dump-macros"></a>`dump-macros` | | Print all of the Readline key sequences bound to macros and the strings they output. If a numeric argument is supplied, the output is formatted in such a way that it can be made part of an inputrc file.
+<a name="rlcmd-execute-named-command"></a>`execute-named-command` | <kbd>Alt</kbd>-<kbd>x</kbd> | Read a bindable readline command name from the input and execute the function to which it's bound, as if the key sequence to which it was bound appeared in the input.  If this function is supplied with a numeric argument, it passes that
+argument to the function it executes.
 
 ### Readline vi Mode
 
@@ -1363,12 +1392,15 @@ Command | Key | Description
 <a name="rlcmd-add-history"></a>`add-history` | <kbd>Alt</kbd>-<kbd>Ctrl</kbd>-<kbd>k</kbd> | Add the current line to the history without executing it, and clear the editing line.
 <a name="rlcmd-alias-expand-line"></a>`alias-expand-line` | | A synonym for [`clink-expand-doskey-alias`](#rlcmd-clink-expand-doskey-alias).
 <a name="rlcmd-clink-accept-suggested-line"></a>`clink-accept-suggested-line` | | If there is a suggestion, insert the suggestion and accept the input line (like [`accept-line`](#rlcmd-accept-line)).
+<a name="rlcmd-clink-backward-bigword"></a>`clink-backward-bigword` | | Move back to the start of the current or previous space delimited word.
 <a name="rlcmd-clink-complete-numbers"></a>`clink-complete-numbers` | | Like [`complete`](#rlcmd-complete), but for numbers from the console screen (3 digits or more, up to hexadecimal).
 <a name="rlcmd-clink-copy-cwd"></a>`clink-copy-cwd` | <kbd>Alt</kbd>-<kbd>c</kbd> | Copies the current working directory to the clipboard.
 <a name="rlcmd-clink-copy-line"></a>`clink-copy-line` | <kbd>Alt</kbd>-<kbd>Ctrl</kbd>-<kbd>c</kbd> | Copies the input line to the clipboard.
-<a name="rlcmd-clink-copy-word"></a>`clink-copy-word` | <kbd>Alt</kbd>-<kbd>Ctrl</kbd>-<kbd>w</kbd> | Copies the word at the cursor point to the clipboard, or copies the <em>n</em>th word if a numeric argument is provided via the [`digit-argument`](#rlcmd-digit-argument) keys.
+<a name="rlcmd-clink-copy-word"></a>`clink-copy-word` | <kbd>Alt</kbd>-<kbd>Ctrl</kbd>-<kbd>w</kbd> | Copies the word at the cursor point to the clipboard, or copies the <em>n</em>-th word if a numeric argument is provided via the [`digit-argument`](#rlcmd-digit-argument) keys.
 <a name="rlcmd-clink-ctrl-c"></a>`clink-ctrl-c` | <kbd>Ctrl</kbd>-<kbd>c</kbd> | Copies any selected text to the clipboard, otherwise cancels the input line and starts a new one.
 <a name="rlcmd-clink-diagnostics"></a>`clink-diagnostics` | <kbd>Ctrl</kbd>-<kbd>x</kbd> <kbd>Ctrl</kbd>-<kbd>z</kbd> | Show internal diagnostic information.
+<a name="rlcmd-clink-dump-functions"></a>`clink-dump-functions` | | Print all of the functions and their key bindings.  If a numeric argument is supplied, formats the output so that it can be made part of an INPUTRC file.  Unlike [`dump-functions`](#rlcmd-dump-functions), this uses friendly key names and includes `luafunc:` macros.
+<a name="rlcmd-clink-dump-macros"></a>`clink-dump-macros` | | Print all of the key names bound to macros and the strings they output.  If a numeric argument is supplied, formats the output so that it can be made part of an INPUTRC file.  Unlike [`dump-macros`](#rlcmd-dump-macros), this uses friendly key names and omits `luafunc:` macros.
 <a name="rlcmd-clink-exit"></a>`clink-exit` | <kbd>Alt</kbd>-<kbd>F4</kbd> | Replaces the input line with `exit` and executes it (exits the CMD instance).
 <a name="rlcmd-clink-expand-doskey-alias"></a>`clink-expand-doskey-alias` | <kbd>Alt</kbd>-<kbd>Ctrl</kbd>-<kbd>f</kbd> | Expands doskey aliases in the input line.
 <a name="rlcmd-clink-expand-env-var"></a>`clink-expand-env-var` | | Expands environment variables in the word at the cursor point.
@@ -1376,6 +1408,7 @@ Command | Key | Description
 <a name="rlcmd-clink-expand-history-and-alias"></a>`clink-expand-history-and-alias` | | Performs [history](#using-history-expansion) and doskey alias expansion in the input line.
 <a name="rlcmd-clink-expand-line"></a>`clink-expand-line` | <kbd>Alt</kbd>-<kbd>Ctrl</kbd>-<kbd>e</kbd> | Performs [history](#using-history-expansion), doskey alias, and environment variable expansion in the input line.
 <a name="rlcmd-clink-find-conhost"></a>`clink-find-conhost` | | Activates the "Find" dialog when running in a standard console window (hosted by the OS conhost).  This is equivalent to picking "Find..." from the console window's system menu. When [`clink.default_bindings`](#clink_default_bindings) is enabled, this is bound to <kbd>Ctrl</kbd>-<kbd>f</kbd>.
+<a name="rlcmd-clink-forward-bigword"></a>`clink-forward-bigword` | | Move forward to the beginning of the next space delimited word, or insert the next full suggested word up to a space.
 <a name="rlcmd-clink-insert-dot-dot"></a>`clink-insert-dot-dot` | <kbd>Alt</kbd>-<kbd>a</kbd> | Inserts `..\` at the cursor point.
 <a name="rlcmd-clink-insert-suggested-full-word"></a>`clink-insert-suggested-full-word` | | If there is a suggestion, insert the next full word from the suggested line.
 <a name="rlcmd-clink-insert-suggested-line"></a>`clink-insert-suggested-line` | | If there is a suggestion, insert the suggested line.
@@ -1391,7 +1424,7 @@ Command | Key | Description
 <a name="rlcmd-clink-popup-complete-numbers"></a>`clink-popup-complete-numbers` | <kbd>Alt</kbd>-<kbd>Ctrl</kbd>-<kbd>Shift</kbd>-<kbd>N</kbd> | Like [`clink-select-complete`](#rlcmd-clink-select-complete), but for numbers from the console screen (3 digits or more, up to hexadecimal).
 <a name="rlcmd-clink-popup-directories"></a>`clink-popup-directories` | <kbd>Alt</kbd>-<kbd>Ctrl</kbd>-<kbd>PgUp</kbd> | Show recent directories in a [popup list](#popupwindow).  In the popup, use <kbd>Enter</kbd> to `cd /d` to the selected directory.
 <a name="rlcmd-clink-popup-history"></a>`clink-popup-history` | <kbd>Alt</kbd>-<kbd>Ctrl</kbd>-<kbd>Up</kbd> | Show history entries in a [popup list](#popupwindow).  Filters using any text before the cursor point.  In the popup, use <kbd>Enter</kbd> to execute the selected history entry.  If [`history.time_stamp`](#history_time_stamp) is `show` then timestamps are shown unless a numeric argument of 0 is provided.  If `history.time_stamp` is `save` then timestamps are only shown if a non-zero numeric argument is provided.
-<a name="rlcmd-clink-popup-show-help"></a>`clink-popup-show-help` | <kbd>Alt</kbd>-<kbd>Ctrl</kbd>-<kbd>H</kbd> | Show all key bindings in a searchable [popup list](#popupwindow).  In the popup, use <kbd>Enter</kbd> to invoke the selected key binding.
+<a name="rlcmd-clink-popup-show-help"></a>`clink-popup-show-help` | <kbd>Alt</kbd>-<kbd>Ctrl</kbd>-<kbd>H</kbd> | Show all key bindings in a searchable [popup list](#popupwindow).  In the popup, use <kbd>Enter</kbd> to invoke the selected key binding.  If a numeric argument of 4 is supplied, it includes unbound commands.
 <a name="rlcmd-clink-reload"></a>`clink-reload` | <kbd>Ctrl</kbd>-<kbd>x</kbd> <kbd>Ctrl</kbd>-<kbd>r</kbd> | Reload Lua scripts and the .inputrc file.
 <a name="rlcmd-clink-reset-line"></a>`clink-reset-line` | <kbd>Esc</kbd> | Clear the input line.  Can be undone, unlike [`revert-line`](#rlcmd-revert-line).
 <a name="rlcmd-clink-scroll-bottom"></a>`clink-scroll-bottom` | <kbd>Alt</kbd>-<kbd>End</kbd> | Scroll the console window to the bottom (the current input line).
@@ -1403,16 +1436,18 @@ Command | Key | Description
 <a name="rlcmd-clink-select-complete"></a>`clink-select-complete` | <kbd>Ctrl</kbd>-<kbd>Space</kbd> | Like [`complete`](#rlcmd-complete), but shows an interactive menu of matches and responds to arrow keys and typing to filter the matches.  If there is only one match, it is inserted.  While completing, <kbd>F1</kbd> toggles showing match descriptions at the bottom vs next to each match.
 <a name="rlcmd-clink-selectall-conhost"></a>`clink-selectall-conhost` | | Mimics the "Select All" command when running in a standard console window (hosted by the OS conhots).  Selects the input line text.  If already selected, then it invokes the "Select All" command from the console window's system menu and selects the entire screen buffer's contents. When [`clink.default_bindings`](#clink_default_bindings) is enabled, this is bound to <kbd>Ctrl</kbd>-<kbd>a</kbd>.
 <a name="rlcmd-clink-shift-space"></a>`clink-shift-space` | <kbd>Shift</kbd>-<kbd>Space</kbd> | Invoke the normal <kbd>Space</kbd> key binding, so that <kbd>Shift</kbd>-<kbd>Space</kbd> behaves the same as <kbd>Space</kbd>.
-<a name="rlcmd-clink-show-help"></a>`clink-show-help` | <kbd>Alt</kbd>-<kbd>h</kbd> | Show all key bindings.  A numeric argument affects showing categories and descriptions:  0 for neither, 1 for categories, 2 for descriptions, 3 for categories and descriptions (the default), 4 for all commands (even if not bound to a key).
-<a name="rlcmd-clink-show-help-raw"></a>`clink-show-help-raw` | | Show raw key sequence strings for all key bindings.  A numeric argument affects showing categories and descriptions:  0 for neither, 1 for categories, 2 for descriptions, 3 for categories and descriptions (the default), 4 for all commands (even if not bound to a key).
+<a name="rlcmd-clink-show-help"></a>`clink-show-help` | <kbd>Alt</kbd>-<kbd>h</kbd> | Show all key bindings.  A numeric argument affects showing categories and descriptions:  0 for neither, 1 for categories, 2 for descriptions, 3 for categories and descriptions (the default).  Add 4 to include unbound commands.
+<a name="rlcmd-clink-show-help-raw"></a>`clink-show-help-raw` | | Show raw key sequence strings for all key bindings.  A numeric argument affects showing categories and descriptions:  0 for neither, 1 for categories, 2 for descriptions, 3 for categories and descriptions (the default).  Add 4 to include unbound commands.
 <a name="rlcmd-clink-up-directory"></a>`clink-up-directory` | <kbd>Ctrl</kbd>-<kbd>PgUp</kbd> | Execute `cd ..` to move up one directory.
 <a name="rlcmd-clink-what-is"></a>`clink-what-is` | <kbd>Alt</kbd>-<kbd>Shift</kbd>-<kbd>/</kbd> | Show the key binding for the next key sequence input.  If a numeric argument is supplied, the raw key sequence string is shown instead of the friendly key name.
+<a name="rlcmd-cua-backward-bigword"></a>`cua-backward-bigword` | | Extend the selection backward one space delimited word.
 <a name="rlcmd-cua-backward-char"></a>`cua-backward-char` | <kbd>Shift</kbd>-<kbd>Left</kbd> | Extend the selection backward one character.
 <a name="rlcmd-cua-backward-word"></a>`cua-backward-word` | <kbd>Ctrl</kbd>-<kbd>Shift</kbd>-<kbd>Left</kbd> | Extend the selection backward one word.
 <a name="rlcmd-cua-beg-of-line"></a>`cua-beg-of-line` | <kbd>Shift</kbd>-<kbd>Home</kbd> | Extend the selection to the beginning of the line.
 <a name="rlcmd-cua-copy"></a>`cua-copy` | <kbd>Shift</kbd>-<kbd>Ins</kbd> | Copy the selected text to the clipboard.
 <a name="rlcmd-cua-cut"></a>`cua-cut` | <kbd>Shift</kbd>-<kbd>Del</kbd> | Cut the selected text to the clipboard.
 <a name="rlcmd-cua-end-of-line"></a>`cua-end-of-line` | <kbd>Shift</kbd>-<kbd>End</kbd> | Extend the selection to the end of the line.
+<a name="rlcmd-cua-forward-bigword"></a>`cua-forward-bigword` | | Extend the selection forward one space delimited word, or insert the next full suggested word up to a space.
 <a name="rlcmd-cua-forward-char"></a>`cua-forward-char` | <kbd>Shift</kbd>-<kbd>Right</kbd> | Extend the selection forward one character, or insert the next full suggested word up to a space.
 <a name="rlcmd-cua-forward-word"></a>`cua-forward-word` | <kbd>Ctrl</kbd>-<kbd>Shift</kbd>-<kbd>Right</kbd> | Extend the selection forward one word.
 <a name="rlcmd-cua-next-screen-line"></a>`cua-next-screen-line` | <kbd>Shift</kbd>-<kbd>Down</kbd> | Extend the selection down one screen line.
@@ -1446,11 +1481,62 @@ Command | Key | Description
 
 ## Completion Colors
 
-The `%LS_COLORS%` environment variable provides color definitions as a series of color definitions separated by colons (`:`).  Each definition is a either a two character type id or a file extension, followed by an equals sign and then the [SGR parameters](https://en.wikipedia.org/wiki/ANSI_escape_code#SGR) for an ANSI escape code.  The two character type ids are listed below.
+The [`match.coloring_rules`](#match_coloring_rules) setting provides a string that determines how match completions are displayed.
 
-When the [`colored-completion-prefix`](#configcoloredcompletionprefix) [Readline setting](#configreadline) is configured to `on`, then the "so" color from `%LS_COLORS%` is used to color the common prefix when displaying possible completions.  The default for "so" is magenta, but for example `set LS_COLORS=so=90` sets the color to bright black (which shows up as a dark gray).
+The string can contain a series of one or more rules separated by colons (`:`).  If an environment variable `%CLINK_MATCH_COLORS%` exists, its value supersedes this setting.
 
-When [`colored-stats`](#configcoloredstats) is configured to `on`, then the color definitions from `%LS_COLORS%` are used to color file completions according to their file type or extension.    Multiple definitions are separated by colons.  Also, since `%LS_COLORS%` doesn't cover readonly files, hidden files, doskey aliases, or shell commands the [color.readonly](#color_readonly), [color.hidden](#color_hidden), [color.doskey](#color_doskey), and [color.cmd](#color_cmd) Clink settings exist to cover those.
+Each rule is a series of one or more conditions separated by spaces, followed by an equals sign and then the [SGR parameters](https://en.wikipedia.org/wiki/ANSI_escape_code#SGR) for an ANSI escape code.  All of the conditions must be true for the rule to match (in other words, a space is like an AND operator).
+
+Each condition can be any of the following:
+
+- A pattern, for example `*.zip` (for zip files).  This is an fnmatch pattern (like .gitignore globbing patterns).  The pattern is compared only to the filename portion after stripping the path.  For example, `*.zip`.
+- A type, for example `di` (for directories).  The available types are listed below.
+- A `not` operator, which negates the next condition.  For example, `not di` applies to anything that isn't a directory, or `not *.zip` applies to any name that doesn't match `*.zip`.
+
+Any quoted string is assumed to be a pattern, so `"hi"` is a pattern instead of the Hidden type, and etc.
+
+Rules are evaluated in the order listed, with one exception:  Rules with exactly one type and no patterns are evaluated last; this makes it easier to list the rules -- you can put the simple defaults first, followed by specializations.
+
+Type | Description | Default
+-|-|-
+`di` | Directory. | `01;34` (bright blue)
+`ex` | Executable file. | `01;32` (bright green)
+`fi` | Normal file. |
+`ro` | Readonly file or directory. | The [color.readonly](#color_readonly) setting.
+`hi` | Hidden file or directory. | The [color.hidden](#color_hidden) setting.
+`mi` | Missing file or directory. |
+`ln` | Symlinks.  When `ln=target` then symlinks are colored according to the target of the symlink. | `target`
+`or` | Orphaned symlink (the target of the symlink is missing). |
+`no` | Normal color; covers anything not covered by any other types. |
+`any` | This clears all types in the rule so far, including the implicit default `fi` type when no type is given.  For example, `any history*` applies to directories as well as to files (any directory or file whose name begins with "history"). |
+
+For backward compatibility with [`%LS_COLORS%`](#LS_COLORS), either `so` or `*.readline-colored-completion-prefix` may be used to override the[`color.common_match_prefix`](#color_common_match_prefix) setting.
+
+Here is an example that defines colors for various types.
+
+```plaintext
+clink set match.coloring_rules  di=93:ro ex=1;32:ex=1:ro=32:di *.tmp=90
+```
+
+- `di=93` uses bright yellow for directories.
+- `ro ex=1;32` uses bright green for readonly executable files.
+- `ex=1` uses bold for executable files (depending on the terminal's color theme, bold by itself usually ends up being bright white).
+- `ro=32` uses dark green for readonly files.
+- `di *.tmp=90` uses bright magenta for directory names ending in `.tmp`.
+
+> **Note:** The `match.coloring_rules` setting was added in Clink v1.6.1.  It works similar to how the [`%LS_COLORS%`](#LS_COLORS) environment variable works, except it adds \"hi\", \"ro\", \"any\", and \"not\", and patterns can be fnmatch patterns instead of just "*.ext" patterns.
+
+<a name="LS_COLORS"></a>
+
+### LS_COLORS (for backward compatibility)
+
+The `%LS_COLORS%` environment variable is supported for backwards compatibility with Readline.  It can provide color definitions as a series of color definitions separated by colons (`:`).  Each definition is a either a two character type id or a file extension, followed by an equals sign and then the [SGR parameters](https://en.wikipedia.org/wiki/ANSI_escape_code#SGR) for an ANSI escape code.  The two character type ids are listed below.
+
+If either [`match.coloring_rules`](#match_coloring_rules) or `%CLINK_MATCH_COLORS` are set, then they take precedence and `%LS_COLORS%` is ignored.
+
+When [`colored-stats`](#configcoloredstats) is configured to `on`, then file completions are colored according to their file type or extension from `%LS_COLORS%`.  Also, since `%LS_COLORS%` doesn't cover readonly files, hidden files, doskey aliases, or shell commands the [color.readonly](#color_readonly), [color.hidden](#color_hidden), [color.doskey](#color_doskey), and [color.cmd](#color_cmd) Clink settings exist to cover those.
+
+When [`colored-completion-prefix`](#configcoloredcompletionprefix) is configured to `on`, then the "so" color from `%LS_COLORS%` is used to color the common prefix when displaying possible completions.  The default for "so" is bright magenta, but for example `set LS_COLORS=so=90` sets the color to bright black (which shows up as a dark gray).
 
 Types|Description|Default
 -|-|-
@@ -2025,6 +2111,8 @@ The function may return any of the following values:
 - Return `0` to repeat using same argument position to parse both the current word and the next word.  Multiple repetitions are possible for the same argument position:  if the "on advance" function for argument position 3 returns `0` for three words in a row, then all three of the words are parsed using argument position 3.
 - Return `-1` to behave as though [:chaincommand()](#_argmatcher:chaincommand) were used, and start parsing a new command line beginning at `word_index`.  To start at the _next_ word index, see the "[chain next](#chainnextexample)" example below.
 - Return `nil` (either `return nil` or just `return`) to advance to the next argument position _after_ parsing the word (this is the default behavior).
+
+In Clink v1.6.2 and higher, when returning `-1` the function may also return a second value which is a string that lets Clink know how the command will get interpreted.  The string is the same as the <span class="arg">modes</span> argument in [:chaincommand()](#_argmatcher:chaincommand).
 
 This example demonstrates treating arg index 1 as an optional title string only if quoted:
 
@@ -2638,6 +2726,8 @@ A transient right side prompt is also possible (similar to the usual [right side
 
 A prompt filter must have a `:filter()` function defined on it, and may in addition have any combination of `:rightfilter()`, `:transientfilter()`, and `:transientrightfilter()` functions defined on it.
 
+> **Related:**  The [prompt.spacing](#prompt_spacing) setting can optionally remove blank lines before the prompt, and can optionally insert one blank line before the normal (non-transient) prompt.
+
 The next example shows how to make a prompt that shows:
 1. The current directory and ` > ` on the left, and the date and time on the right.
 2. Just `> ` on the left, for past commands.
@@ -3138,7 +3228,7 @@ Here are the word designators:
 <tr><td>
 <code><em>n</em></code>
 </td><td>
-    The <em>n</em>th word.
+    The <em>n</em>-th word.
 </td></tr>
 
 <tr><td>

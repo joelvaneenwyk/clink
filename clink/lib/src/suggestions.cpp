@@ -5,14 +5,13 @@
 #include "line_buffer.h"
 #include "line_state.h"
 #include "display_readline.h"
-
 #include "matches_impl.h"
-#include "rl_commands.h"
-#include "rl_suggestions.h"
+#include "suggestions.h"
 
 #include <core/base.h>
 #include <core/str_compare.h>
 #include <core/settings.h>
+#include <rl/rl_commands.h>
 #include <terminal/ecma48_iter.h>
 
 extern "C" {
@@ -91,6 +90,8 @@ bool suggestion_manager::get_visible(str_base& out, bool* includes_hint) const
     out.clear();
     if (!g_rl_buffer)
         return false;
+    if (m_suggestion_offset >= g_rl_buffer->get_length())
+        return false;
 
     // Do not allow relaxed comparison for suggestions, as it is too confusing,
     // as a result of the logic to respect original case.
@@ -129,6 +130,13 @@ bool suggestion_manager::get_visible(str_base& out, bool* includes_hint) const
 }
 
 //------------------------------------------------------------------------------
+bool suggestion_manager::has_suggestion() const
+{
+    str<> tmp;
+    return get_visible(tmp);
+}
+
+//------------------------------------------------------------------------------
 void suggestion_manager::clear()
 {
     if (m_iter.more() && g_rl_buffer)
@@ -154,7 +162,7 @@ bool suggestion_manager::can_suggest(const line_state& line)
     if (m_paused)
         return false;
 
-    if (RL_ISSTATE(RL_STATE_NSEARCH))
+    if (RL_ISSTATE(RL_STATE_NSEARCH|RL_STATE_READSTR))
     {
         clear();
         g_rl_buffer->set_need_draw();
@@ -377,15 +385,15 @@ bool suggestion_manager::insert(suggestion_action action)
     }
 
     // Find the offset at which to replace with suggestion text.
-    uint32 replace_offset = m_endword_offset;
+    uint32 replace_offset = max(m_endword_offset, m_suggestion_offset);
     const char* insert = m_iter.get_pointer();
 
     // Track quotes between end word offset and cursor (end of line).
     bool quote = false;
     {
         const uint32 len = g_rl_buffer->get_length();
-        if (replace_offset > 0)
-            quote = (g_rl_buffer->get_buffer()[replace_offset - 1] == '"');
+        if (m_endword_offset > 0)
+            quote = (g_rl_buffer->get_buffer()[m_endword_offset - 1] == '"');
         if (replace_offset < len)
         {
             str_iter orig_iter(g_rl_buffer->get_buffer() + replace_offset, g_rl_buffer->get_length() - replace_offset);

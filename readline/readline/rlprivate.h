@@ -1,7 +1,7 @@
 /* rlprivate.h -- functions and variables global to the readline library,
 		  but not intended for use by applications. */
 
-/* Copyright (C) 1999-2022 Free Software Foundation, Inc.
+/* Copyright (C) 1999-2023 Free Software Foundation, Inc.
 
    This file is part of the GNU Readline Library (Readline), a library
    for reading lines of text with interactive input and history editing.
@@ -109,6 +109,27 @@ typedef struct  __rl_search_context
 
   char  *search_terminators;
 } _rl_search_cxt;
+
+/* readstr flags */
+#define RL_READSTR_NOSPACE	0x01	/* don't insert space, use for completion */
+
+typedef struct  __rl_readstr_context
+{
+  int flags;
+
+  int prevc;
+  int lastc;
+#if defined (HANDLE_MULTIBYTE)
+  char mb[MB_LEN_MAX];
+  char pmb[MB_LEN_MAX];
+#endif
+
+  int save_point;
+  int save_mark;
+  int save_line;
+
+  int (*compfunc) (struct __rl_readstr_context *, int);
+} _rl_readstr_cxt;
 
 struct _rl_cmd {
   Keymap map;
@@ -316,15 +337,27 @@ extern int _rl_pushed_input_available (void);
 
 extern int _rl_timeout_init (void);
 extern int _rl_timeout_handle_sigalrm (void);
+/* begin_clink_change */
+//#if defined (_POSIXSELECT_H_) && !defined (__MINGW32__) && (defined (HAVE_SELECT) || defined (HAVE_PSELECT))
+//#if defined (_POSIXSELECT_H_) && (defined (HAVE_SELECT) || defined (HAVE_PSELECT))
+/* end_clink_change */
+
 #if defined (_POSIXSELECT_H_)
-/* begin_clink_change */
-#if defined (HAVE_PSELECT) || defined (HAVE_SELECT)
-/* end_clink_change */
 /* use as a sentinel for fd_set, struct timeval,  and sigset_t definitions */
-extern int _rl_timeout_select (int, fd_set *, fd_set *, fd_set *, const struct timeval *, const sigset_t *);
-/* begin_clink_change */
+
+#if defined (__MINGW32__)
+#  define RL_TIMEOUT_USE_SIGALRM
+#elif defined (HAVE_SELECT) || defined (HAVE_PSELECT)
+#  define RL_TIMEOUT_USE_SELECT
+#elif defined (_MSC_VER)
+/* can't use select/pselect or SIGALRM, so no timeouts */
+#else
+#  define RL_TIMEOUT_USE_SIGALRM
 #endif
-/* end_clink_change */
+
+#endif
+#if defined (RL_TIMEOUT_USE_SELECT)
+extern int _rl_timeout_select (int, fd_set *, fd_set *, fd_set *, const struct timeval *, const sigset_t *);
 #endif
 
 /* isearch.c */
@@ -374,7 +407,13 @@ extern int _rl_arg_callback (_rl_arg_cxt);
 extern void _rl_reset_argument (void);
 
 extern void _rl_start_using_history (void);
+#if defined (HIST_ENTRY_DEFINED)
+extern HIST_ENTRY *_rl_alloc_saved_line (void);
+extern void _rl_free_saved_line (HIST_ENTRY *);
+extern void _rl_unsave_line (HIST_ENTRY *);
+#endif
 extern int _rl_free_saved_history_line (void);
+
 extern void _rl_set_insert_mode (int, int);
 
 extern void _rl_revert_previous_lines (void);
@@ -415,6 +454,8 @@ extern void adjust_history_search_pos (int);
 extern int rl_get_history_search_pos (void);
 extern int rl_get_history_search_flags (void);
 /* end_clink_change */
+
+extern void _rl_free_saved_search_line (void);
 
 /* signals.c */
 extern void _rl_signal_handler (int);
@@ -463,21 +504,28 @@ extern int _rl_char_search_internal (int, int, int);
 #endif
 extern int _rl_set_mark_at_pos (int);
 
+extern _rl_readstr_cxt *_rl_rscxt_alloc (int);
+extern void _rl_rscxt_dispose (_rl_readstr_cxt *, int);
+extern void _rl_free_saved_readstr_line (void);
+extern void _rl_unsave_saved_readstr_line (void);
+extern _rl_readstr_cxt *_rl_readstr_init (int, int);
+extern int _rl_readstr_cleanup (_rl_readstr_cxt *, int);
+extern void _rl_readstr_restore (_rl_readstr_cxt *);
+extern int _rl_readstr_getchar (_rl_readstr_cxt *);
+extern int _rl_readstr_dispatch (_rl_readstr_cxt *, int);
+/* begin_clink_change */
+extern int _rl_readstr_pchar;  /* Only valid during RL_STATE_READSTR. */
+/* end_clink_change */
+
 /* undo.c */
 extern UNDO_LIST *_rl_copy_undo_entry (UNDO_LIST *);
 extern UNDO_LIST *_rl_copy_undo_list (UNDO_LIST *);
 extern void _rl_free_undo_list (UNDO_LIST *);
 
 /* util.c */
-#if defined (USE_VARARGS) && defined (PREFER_STDARG)
 extern void _rl_ttymsg (const char *, ...)  __attribute__((__format__ (printf, 1, 2)));
 extern void _rl_errmsg (const char *, ...)  __attribute__((__format__ (printf, 1, 2)));
 extern void _rl_trace (const char *, ...)  __attribute__((__format__ (printf, 1, 2)));
-#else
-extern void _rl_ttymsg ();
-extern void _rl_errmsg ();
-extern void _rl_trace ();
-#endif
 extern void _rl_audit_tty (char *);
 
 extern int _rl_tropen (void);
@@ -485,6 +533,8 @@ extern int _rl_tropen (void);
 extern int _rl_abort_internal (void);
 extern int _rl_null_function (int, int);
 extern char *_rl_strindex (const char *, const char *);
+extern int _rl_strcaseeqn (const char *, const char *, size_t, int);
+extern int _rl_charcasecmp (int, int, int);
 extern int _rl_qsort_string_compare (char **, char **);
 extern int (_rl_uppercase_p) (int);
 extern int (_rl_lowercase_p) (int);
@@ -544,6 +594,7 @@ extern int _rl_menu_complete_wraparound;
 /* display.c */
 extern int _rl_vis_botlin;
 extern int _rl_last_c_pos;
+extern int _rl_last_v_pos;
 extern int _rl_suppress_redisplay;
 extern int _rl_want_redisplay;
 
@@ -558,6 +609,7 @@ extern int _rl_vi_cmd_modestr_len;
 extern char *_rl_isearch_terminators;
 
 extern _rl_search_cxt *_rl_iscxt;
+extern int _rl_search_case_fold;
 
 /* macro.c */
 extern char *_rl_executing_macro;
@@ -601,7 +653,7 @@ extern procenv_t _rl_top_level;
 extern _rl_keyseq_cxt *_rl_kscxt;
 extern int _rl_keyseq_timeout;
 
-extern int _rl_executing_keyseq_size;
+extern size_t _rl_executing_keyseq_size;
 
 extern rl_hook_func_t *_rl_internal_startup_hook;
 
@@ -610,7 +662,6 @@ extern _rl_search_cxt *_rl_nscxt;
 extern int _rl_history_search_pos;
 /* begin_clink_change */
 extern int _rl_history_point_at_end_of_anchored_search;
-extern int _rl_search_case_fold;
 /* end_clink_change */
 
 /* signals.c */
@@ -652,6 +703,8 @@ extern int _rl_term_autowrap;
 /* text.c */
 extern int _rl_optimize_typeahead;
 extern int _rl_keep_mark_active;
+
+extern _rl_readstr_cxt *_rl_rscxt;
 
 /* undo.c */
 extern int _rl_doing_an_undo;

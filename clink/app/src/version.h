@@ -14,7 +14,7 @@
 
 #define CLINK_VERSION_MAJOR     1
 #define CLINK_VERSION_MINOR     6
-#define CLINK_VERSION_PATCH     1
+#define CLINK_VERSION_PATCH     4
 
 #ifdef _MSC_VER
 #   undef CLINK_VERSION_STR
@@ -29,4 +29,6 @@
                                 AS_LSTR(CLINK_COMMIT)
 #endif
 
+#define ENCODE_CLINK_VERSION(major, minor, patch) (major * 10000000 + minor * 10000 + patch)
+#define CLINK_VERSION_ENCODED   ENCODE_CLINK_VERSION(CLINK_VERSION_MAJOR, CLINK_VERSION_MINOR, CLINK_VERSION_PATCH)
 

@@ -276,6 +276,57 @@ local function get_classify_color(code)
 end
 
 --------------------------------------------------------------------------------
+local function parse_chaincommand_modes(modes)
+    local mode = "cmd"
+    local expand_aliases
+    modes = modes or ""
+    for _, m in ipairs(string.explode(modes:lower(), ", ")) do
+        if m == "doskey" then
+            expand_aliases = true
+        elseif m == "cmd" or m == "start" or m == "run" then
+            mode = m
+        end
+    end
+    return mode, expand_aliases
+end
+
+--------------------------------------------------------------------------------
+local function break_slash(line_state, word_index, word_classifications)
+    -- If word_index not specified, then find the command word.  This loops to
+    -- find it instead of using getcommandwordindex() so that it can work even
+    -- when chain command parsing is re-parsing an existing line_state
+    -- starting from a later word index.
+    if not word_index then
+        for i = 1, line_state:getwordcount() do
+            local info = line_state:getwordinfo(i)
+            if not info.redir then
+                if info.quoted then
+                    return
+                end
+                word_index = i
+                break
+            end
+        end
+    end
+
+    -- If the first character is not a forward slash but a forward slash is
+    -- present later in the word, then split the word into two.
+    local word = line_state:getword(word_index)
+    local slash = word:find("/")
+    if slash and slash > 1 then
+        -- In `xyz/whatever` the `xyz` can never be an alias because it isn't
+        -- whitespace delimited.
+        local ls = line_state:_break_word(word_index, slash - 1)
+        if ls then
+            if word_classifications then
+                word_classifications:_break_word(word_index, slash - 1)
+            end
+            return ls, word_classifications
+        end
+    end
+end
+
+--------------------------------------------------------------------------------
 function _argreader:lookup_link(arg, arg_index, word, word_index, line_state)
     if word and arg then
         local link, forced
@@ -331,6 +382,45 @@ function _argreader:_detect_arg_cycle()
             clink.print("\x1b[s\x1b[H\x1b[0;97;41m cycle detected ("..__cycles..") \x1b[m\x1b[K\x1b[u", NONL)
         end
         return true
+    end
+end
+
+--------------------------------------------------------------------------------
+-- NOTE: line_state may not be self._line_state if it came from extra.
+function _argreader:start_chained_command(line_state, word_index, mode, expand_aliases)
+    self._no_cmd = nil
+    mode = mode or "cmd"
+    for i = word_index, line_state:getwordcount() do
+        local info = line_state:getwordinfo(i)
+        if not info.redir then
+            if info.quoted then
+                return line_state
+            end
+            local alias
+            if expand_aliases then
+                local word = line_state:getword(i)
+                local got = os.getalias(word)
+                alias = got and got ~= ""
+                if (not alias) ~= (not info.alias) then
+                    local ls = line_state:_set_alias(i, alias)
+                    if ls then
+                        self._line_state = ls
+                        line_state = ls
+                    end
+                end
+            end
+            if not alias and mode == "cmd" then
+                local ls, wc = break_slash(line_state, i, self._word_classifier)
+                if ls then
+                    self._line_state = ls
+                    if self._word_classifier then
+                        self._word_classifier = wc
+                    end
+                end
+            end
+            self._no_cmd = not (mode == "cmd" or mode == "start")
+            break
+        end
     end
 end
 
@@ -435,13 +525,13 @@ function _argreader:update(word, word_index, extra, last_onadvance) -- luacheck:
     local arg = matcher._args[arg_index]
 
     -- Determine next arg index.
-    local react
+    local react, react_modes
     if arg and not is_flag then
         if arg.delayinit then
             do_delayed_init(arg, realmatcher, arg_index)
         end
         if arg.onadvance then
-            react = arg.onadvance(arg_index, word, word_index, line_state, self._user_data)
+            react, react_modes = arg.onadvance(arg_index, word, word_index, line_state, self._user_data)
             if react then
                 -- 1 = Ignore; advance to next arg_index.
                 -- 0 = Repeat; stay on the arg_index.
@@ -450,10 +540,17 @@ function _argreader:update(word, word_index, extra, last_onadvance) -- luacheck:
                     react = nil
                 end
             end
+            if react ~= -1 then
+                react_modes = nil
+            end
         end
     end
-    if last_onadvance and react ~= 1 and react ~= -1 then
-        return
+    if last_onadvance then
+        -- When in last_onadvance mode, bail out unless chaining or advancing
+        -- is needed.
+        if react ~= 1 and react ~= -1 and not ((not arg) and matcher._chain_command) then
+            return
+        end
     end
     local next_arg_index = arg_index + ((react ~= 0) and 1 or 0)
 
@@ -464,12 +561,12 @@ function _argreader:update(word, word_index, extra, last_onadvance) -- luacheck:
         -- nowordbreakchars.  This more accurately reflects how the command
         -- line will actually be parsed, especially for commas.
         local nowordbreakchars = arg.nowordbreakchars or default_flag_nowordbreakchars
-        local adjusted, skip_word, len = line_state:_unbreak(word_index, nowordbreakchars)
+        local adjusted, skip_word, len = line_state:_unbreak_word(word_index, nowordbreakchars)
         if adjusted then
             self._line_state = adjusted
             line_state = adjusted
             if self._word_classifier then
-                self._word_classifier:_unbreak(word_index, len, skip_word)
+                self._word_classifier:_unbreak_word(word_index, len, skip_word)
             end
             if skip_word then
                 if is_flag then
@@ -534,14 +631,20 @@ function _argreader:update(word, word_index, extra, last_onadvance) -- luacheck:
         self._arg_index = next_arg_index
     end
 
-    -- Some matchers have no args at all.  Or ran out of args.
     if react == -1 then
+        -- Chain due to request by `onadvance` callback.
+        local mode, expand_aliases = parse_chaincommand_modes(react_modes)
         self._chain_command = true
+        self:start_chained_command(line_state, word_index, mode, expand_aliases)
         return true -- chaincommand.
     end
+
+    -- Some matchers have no args at all.  Or ran out of args.
     if not arg then
         if matcher._chain_command then
+            -- Chain due to :chaincommand() used in argmatcher.
             self._chain_command = true
+            self:start_chained_command(line_state, word_index, matcher._chain_command_mode, matcher._chain_command_expand_aliases)
             return true -- chaincommand.
         end
         if self._word_classifier and not extra then
@@ -1302,6 +1405,7 @@ end
 --------------------------------------------------------------------------------
 --- -name:  _argmatcher:chaincommand
 --- -ver:   1.3.13
+--- -arg:   [modes:string]
 --- -ret:   self
 --- This makes the rest of the line be parsed as a separate command, after the
 --- argmatcher reaches the end of its defined argument positions.  You can use
@@ -1341,9 +1445,29 @@ end
 --- -show:  -- "profile1" is colored as an argument (for "exec").
 --- -show:  -- "program" is colored as an argmatcher.
 --- -show:  -- "-" generates completions "-x" and "-y".
-function _argmatcher:chaincommand()
+---
+--- In Clink v1.6.2 and higher, an optional <span class="arg">modes</span>
+--- argument can let Clink know how the command will get interpreted.  The
+--- string can contain any combination of the following words, separated by
+--- spaces or commas.  If some words are mutually exclusive, the one that
+--- comes last in the string is used.
+--- <table>
+--- <tr><th>Mode</th><th>Description</th></tr>
+--- <tr><td><code>cmd</code></td><td>Lets the argmatcher know that the command gets processed how CMD.exe would process it.  This is the default if <span class="arg">modes</span> is omitted.</td></tr>
+--- <tr><td><code>start</code></td><td>Lets the argmatcher know the command gets processed how the START command would process it.</td></tr>
+--- <tr><td><code>run</code></td><td>Lets the argmatcher know the command gets processed how the <kbd>Win</kbd>-<kbd>R</kbd> Windows Run dialog box would process it.</td></tr>
+--- <tr><td><code>doskey</code></td><td>Lets the argmatcher know if the command starts with a doskey alias it will be expanded.  This is very unusual, but for example the <a href="https://github.com/chrisant996/clink-gizmos/blob/main/i.lua">i.lua</a> script in <a href="https://github.com/chrisant996/clink-gizmos">clink-gizmos</a> does this.</td></tr>
+--- </table>
+---
+--- The <span class="arg">modes</span> string does not affect how the command
+--- gets executed.  It only affects how the argmatcher performs completions
+--- and input line coloring, to help the argmatcher be accurate.
+function _argmatcher:chaincommand(modes)
+    modes = modes or ""
     self._chain_command = true
+    self._chain_command_mode = "cmd"
     self._no_file_generation = true -- So that pop() doesn't interfere.
+    self._chain_command_mode, self._chain_command_expand_aliases = parse_chaincommand_modes(modes)
     return self
 end
 
@@ -1638,7 +1762,8 @@ function _argmatcher:_generate(reader, match_builder) -- luacheck: no unused
 
     -- Consume words and use them to move through matchers' arguments.
     local command_word_index = line_state:getcommandwordindex()
-    for word_index = command_word_index + 1, (line_state:getwordcount() - 1) do
+    local word_count = line_state:getwordcount()
+    for word_index = command_word_index + 1, (word_count - 1) do
         local info = line_state:getwordinfo(word_index)
         if not info.redir then
             local word = line_state:getword(word_index)
@@ -1650,15 +1775,20 @@ function _argmatcher:_generate(reader, match_builder) -- luacheck: no unused
     end
 
     -- If not generating matches, then just consume the end word and return.
-    local word_count = line_state:getwordcount()
+    word_count = line_state:getwordcount()
     if not match_builder then
         reader:update(line_state:getword(word_count), word_count)
         return
     end
 
     -- Special processing for last word, in case there's an onadvance callback.
-    reader:update(line_state:getword(word_count), word_count, nil, true--[[last_onadvance]])
+    if reader:update(line_state:getword(word_count), word_count, nil, true--[[last_onadvance]]) then
+        if reader._line_state:getwordcount() > word_count then
+            return true, word_count
+        end
+    end
     line_state = reader._line_state -- reader:update() can swap to a different line_state.
+    word_count = line_state:getwordcount()
 
     -- There should always be a matcher left on the stack, but the arg_index
     -- could be well out of range.
@@ -2011,17 +2141,7 @@ function clink.argmatcher(...)
 end
 
 --------------------------------------------------------------------------------
---- -name:  clink.dirmatches
---- -ver:   1.1.18
---- -arg:   word:string
---- -ret:   table
---- You can use this function in an argmatcher to supply directory matches.
---- This automatically handles Readline tilde completion.
---- -show:  -- Make "cd" generate directory matches (no files).
---- -show:  clink.argmatcher("cd")
---- -show:  :addflags("/d")
---- -show:  :addarg({ clink.dirmatches })
-function clink.dirmatches(match_word)
+local function dir_matches_impl(match_word, exact)
     local word, expanded = rl.expandtilde(match_word or "")
     local hidden = settings.get("files.hidden") and rl.isvariabletrue("match-hidden-files")
 
@@ -2047,7 +2167,7 @@ function clink.dirmatches(match_word)
     }
 
     local matches = {}
-    for _, i in ipairs(os.globdirs(word.."*", true, flags)) do
+    for _, i in ipairs(os.globdirs(word..(exact and "" or "*"), true, flags)) do
         local m = path.join(root, i.name)
         table.insert(matches, { match = m, type = i.type })
         if not ismain and _ % 250 == 0 then
@@ -2055,6 +2175,69 @@ function clink.dirmatches(match_word)
         end
     end
     return matches
+end
+
+--------------------------------------------------------------------------------
+local function file_matches_impl(match_word, exact)
+    local word, expanded = rl.expandtilde(match_word or "")
+    local hidden = settings.get("files.hidden") and rl.isvariabletrue("match-hidden-files")
+
+    local server = word:match("^\\\\([^\\]+)\\[^\\]*$")
+    if server then
+        local matches = {}
+        for share, special in os.enumshares(server, hidden) do
+            table.insert(matches, { match = string.format("\\\\%s\\%s\\", server, share), type = special and "dir,hidden" or "dir" })
+        end
+        return matches
+    end
+
+    local root = (path.getdirectory(word) or ""):gsub("/", "\\")
+    if expanded then
+        root = rl.collapsetilde(root)
+    end
+
+    local _, ismain = coroutine.running()
+
+    local flags = {
+        hidden=hidden,
+        system=settings.get("files.system"),
+    }
+
+    local matches = {}
+    for _, i in ipairs(os.globfiles(word..(exact and "" or "*"), true, flags)) do
+        local m = path.join(root, i.name)
+        table.insert(matches, { match = m, type = i.type })
+        if not ismain and _ % 100 == 0 then
+            coroutine.yield()
+        end
+    end
+    return matches
+end
+
+--------------------------------------------------------------------------------
+--- -name:  clink.dirmatches
+--- -ver:   1.1.18
+--- -arg:   word:string
+--- -ret:   table
+--- You can use this function in an argmatcher to supply directory matches.
+--- This automatically handles Readline tilde completion.
+--- -show:  -- Make "cd" generate directory matches (no files).
+--- -show:  clink.argmatcher("cd")
+--- -show:  :addflags("/d")
+--- -show:  :addarg({ clink.dirmatches })
+function clink.dirmatches(match_word)
+    return dir_matches_impl(match_word)
+end
+
+--------------------------------------------------------------------------------
+--- -name:  clink.dirmatchesexact
+--- -ver:   1.6.4
+--- -arg:   word:string
+--- -ret:   table
+--- This is the same as <a href="#clink.dirmatches">clink.dirmatches()</a>
+--- except this doesn't append a <code>*</code> to the search pattern.
+function clink.dirmatchesexact(match_word)
+    return dir_matches_impl(match_word, true)
 end
 
 --------------------------------------------------------------------------------
@@ -2080,39 +2263,26 @@ end
 --- -show:  :addarg({ "two", "too" })
 --- -show:  :addarg({ clink.filematches, "$stdin", "$stdout" })
 function clink.filematches(match_word)
-    local word, expanded = rl.expandtilde(match_word or "")
-    local hidden = settings.get("files.hidden") and rl.isvariabletrue("match-hidden-files")
+    return file_matches_impl(match_word)
+end
 
-    local server = word:match("^\\\\([^\\]+)\\[^\\]*$")
-    if server then
-        local matches = {}
-        for share, special in os.enumshares(server, hidden) do
-            table.insert(matches, { match = string.format("\\\\%s\\%s\\", server, share), type = special and "dir,hidden" or "dir" })
-        end
-        return matches
-    end
-
-    local root = (path.getdirectory(word) or ""):gsub("/", "\\")
-    if expanded then
-        root = rl.collapsetilde(root)
-    end
-
-    local _, ismain = coroutine.running()
-
-    local flags = {
-        hidden=hidden,
-        system=settings.get("files.system"),
-    }
-
-    local matches = {}
-    for _, i in ipairs(os.globfiles(word.."*", true, flags)) do
-        local m = path.join(root, i.name)
-        table.insert(matches, { match = m, type = i.type })
-        if not ismain and _ % 100 == 0 then
-            coroutine.yield()
-        end
-    end
-    return matches
+--------------------------------------------------------------------------------
+--- -name:  clink.filematchesexact
+--- -ver:   1.6.4
+--- -arg:   word:string
+--- -ret:   table
+--- This is the same as <a href="#clink.filematches">clink.filematches()</a>
+--- except this doesn't append a <code>*</code> to the search pattern.
+--- -show:  local function zip_file_matches(word)
+--- -show:  &nbsp;   return clink.filematchesexact(word.."*.zip")
+--- -show:  end
+--- -show:
+--- -show:  clink.argmatcher("unzip")
+--- -show:  :addarg(zip_file_matches)   -- First arg is name of a .zip file.
+--- -show:  :addarg()
+--- -show:  :loop(2)
+function clink.filematchesexact(match_word)
+    return file_matches_impl(match_word, true)
 end
 
 
@@ -2411,7 +2581,8 @@ function clink.getargmatcher(find)
         end
         return _has_argmatcher(find, quoted)
     elseif t == "userdata" then
-        return _find_argmatcher(find)
+        local matcher = _find_argmatcher(find)
+        return matcher
     else
         return nil
     end
@@ -2434,7 +2605,10 @@ function clink._generate_from_historyline(line_state)
 
     -- Consume extra words from expanded doskey alias.
     if not extra then
-        extra = alias
+        if alias then
+            alias.line_state = break_slash(alias.line_state) or alias.line_state
+            extra = alias
+        end
     elseif extra.done then
         extra = nil
     end
@@ -2477,7 +2651,10 @@ local function do_generate(line_state, match_builder)
     local argmatcher, has_argmatcher, alias = _find_argmatcher(line_state, nil, lookup) -- luacheck: no unused
     lookup = nil -- luacheck: ignore 311
     if not extra then
-        extra = alias
+        if alias then
+            alias.line_state = break_slash(alias.line_state) or alias.line_state
+            extra = alias
+        end
     elseif extra.done then
         extra = nil
     end
@@ -2533,7 +2710,10 @@ function argmatcher_generator:getwordbreakinfo(line_state) -- luacheck: no self
     local argmatcher, has_argmatcher, alias = _find_argmatcher(line_state, nil, lookup) -- luacheck: no unused
     lookup = nil
     if not extra then
-        extra = alias
+        if alias then
+            alias.line_state = break_slash(alias.line_state) or alias.line_state
+            extra = alias
+        end
     elseif extra.done then
         extra = nil
     end
@@ -2551,7 +2731,8 @@ function argmatcher_generator:getwordbreakinfo(line_state) -- luacheck: no self
 
         -- Consume words and use them to move through matchers' arguments.
         local command_word_index = line_state:getcommandwordindex()
-        for word_index = command_word_index + 1, (line_state:getwordcount() - 1) do
+        local word_count = line_state:getwordcount()
+        for word_index = command_word_index + 1, (word_count - 1) do
             local info = line_state:getwordinfo(word_index)
             if not info.redir then
                 local word = line_state:getword(word_index)
@@ -2563,6 +2744,18 @@ function argmatcher_generator:getwordbreakinfo(line_state) -- luacheck: no self
                 end
             end
         end
+
+        -- Special processing for last word, in case there's an onadvance callback.
+        word_count = line_state:getwordcount()
+        if reader:update(line_state:getword(word_count), word_count, nil, true--[[last_onadvance]]) then
+            line_state = reader._line_state -- reader:update() can swap to a different line_state.
+            if line_state:getwordcount() > word_count then
+                line_state:_shift(word_count)
+                goto do_command
+            end
+        end
+        line_state = reader._line_state -- reader:update() can swap to a different line_state.
+        -- word_count = line_state:getwordcount() -- Unused.
 
         if original_line_state ~= line_state then
             original_line_state:_overwrite_from(line_state)
@@ -2582,7 +2775,7 @@ function argmatcher_generator:getwordbreakinfo(line_state) -- luacheck: no self
                 pos = next
             end
             if pos > 0 then
-                return pos, 0
+                return pos, 0, line_state
             end
         end
 
@@ -2595,14 +2788,14 @@ function argmatcher_generator:getwordbreakinfo(line_state) -- luacheck: no self
                 -- quotes) so that matching can happen for the `text` portion.
                 local attached_arg,attach_pos = word:find("^[^:=][^:=]+[:=]")
                 if attached_arg then
-                    return attach_pos, 0
+                    return attach_pos, 0, line_state
                 end
-                return 0, 1
+                return 0, 1, line_state
             end
         end
     end
 
-    return 0
+    return 0, nil, line_state
 end
 
 --------------------------------------------------------------------------------
@@ -2612,15 +2805,19 @@ function argmatcher_classifier:classify(commands) -- luacheck: no self
     for _,command in ipairs(commands) do
         local lookup
         local extra
-::do_command::
         local line_state = command.line_state
         local word_classifier = command.classifications
+        local no_cmd
+::do_command::
 
         local argmatcher, has_argmatcher, alias = _find_argmatcher(line_state, true, lookup)
         local command_word_index = line_state:getcommandwordindex()
         lookup = nil
         if not extra then
-            extra = alias
+            if alias then
+                alias.line_state = break_slash(alias.line_state) or alias.line_state
+                extra = alias
+            end
         elseif extra.done then
             extra = nil
         end
@@ -2631,7 +2828,7 @@ function argmatcher_classifier:classify(commands) -- luacheck: no self
             local m = has_argmatcher and "m" or ""
             if info.alias then
                 word_classifier:classifyword(command_word_index, m.."d", false); --doskey
-            elseif not info.quoted and clink.is_cmd_command(command_word) then
+            elseif not info.quoted and not no_cmd and clink.is_cmd_command(command_word) then
                 word_classifier:classifyword(command_word_index, m.."c", false); --command
             elseif unrecognized_color or executable_color then
                 local cl
@@ -2640,8 +2837,9 @@ function argmatcher_classifier:classify(commands) -- luacheck: no self
                     cl = unrecognized_color and "u"                              --unrecognized
                 elseif recognized > 0 then
                     cl = executable_color and "x"                                --executable
+                else
+                    cl = "o"                                                     --other
                 end
-                cl = cl or "o"                                                   --other
                 word_classifier:classifyword(command_word_index, m..cl, false);
             else
                 word_classifier:classifyword(command_word_index, m.."o", false); --other
@@ -2657,6 +2855,7 @@ function argmatcher_classifier:classify(commands) -- luacheck: no self
                 local stop -- When consuming extra, it means switch to a new argmatcher.
                 stop, lookup = reader:consume_extra(extra)
                 if stop then
+                    no_cmd = reader._no_cmd
                     goto do_command
                 end
             end
@@ -2671,6 +2870,7 @@ function argmatcher_classifier:classify(commands) -- luacheck: no self
                     if chain then
                         line_state:_shift(word_index)
                         word_classifier:_shift(word_index, line_state:getcommandwordindex())
+                        no_cmd = reader._no_cmd
                         goto do_command
                     end
                 end

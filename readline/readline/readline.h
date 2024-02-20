@@ -1,6 +1,6 @@
 /* Readline.h -- the names of functions callable from within readline. */
 
-/* Copyright (C) 1987-2022 Free Software Foundation, Inc.
+/* Copyright (C) 1987-2023 Free Software Foundation, Inc.
 
    This file is part of the GNU Readline Library (Readline), a library
    for reading lines of text with interactive input and history editing.      
@@ -39,9 +39,9 @@ extern "C" {
 #endif
 
 /* Hex-encoded Readline version number. */
-#define RL_READLINE_VERSION	0x0802		/* Readline 8.2 */
+#define RL_READLINE_VERSION	0x0803		/* Readline 8.3 */
 #define RL_VERSION_MAJOR	8
-#define RL_VERSION_MINOR	2
+#define RL_VERSION_MINOR	3
 
 /* begin_clink_change */
 #if defined(_MSC_VER)
@@ -235,6 +235,8 @@ extern int rl_stop_output (int, int);
 extern int rl_abort (int, int);
 extern int rl_tty_status (int, int);
 
+extern int rl_execute_named_command (int, int);
+
 /* Bindable commands for incremental and non-incremental history searching. */
 extern int rl_history_search_forward (int, int);
 extern int rl_history_search_backward (int, int);
@@ -376,7 +378,9 @@ extern int rl_trim_arg_from_keyseq (const char *, size_t, Keymap);
 extern void rl_list_funmap_names (void);
 extern char **rl_invoking_keyseqs_in_map (rl_command_func_t *, Keymap);
 extern char **rl_invoking_keyseqs (rl_command_func_t *);
- 
+
+extern void rl_print_keybinding (const char *, Keymap, int);
+
 extern void rl_function_dumper (int);
 extern void rl_macro_dumper (int);
 extern void rl_variable_dumper (int);
@@ -448,11 +452,7 @@ extern void rl_activate_mark (void);
 extern void rl_deactivate_mark (void);
 extern int rl_mark_active_p (void);
 
-#if defined (USE_VARARGS) && defined (PREFER_STDARG)
 extern int rl_message (const char *, ...)  __attribute__((__format__ (printf, 1, 2)));
-#else
-extern int rl_message ();
-#endif
 
 extern int rl_show_char (int);
 
@@ -485,6 +485,7 @@ extern void rl_get_screen_size (int *, int *);
 extern void rl_reset_screen_size (void);
 
 extern char *rl_get_termcap (const char *);
+extern void rl_reparse_colors (void);
 
 /* Functions for character input. */
 extern int rl_stuff_char (int);
@@ -793,6 +794,8 @@ extern rl_puts_face_func_t *rl_puts_face_func;
 extern rl_vintfunc_t *rl_prep_term_function;
 extern rl_voidfunc_t *rl_deprep_term_function;
 
+extern rl_macro_print_func_t *rl_macro_display_hook;
+
 /* Dispatch variables. */
 extern Keymap rl_executing_keymap;
 extern Keymap rl_binding_keymap;
@@ -949,6 +952,19 @@ extern rl_icppfunc_t *rl_filename_stat_hook;
    converted. */
 extern rl_dequote_func_t *rl_filename_rewrite_hook;
 
+/* If non-zero, this is the address of a function to call before
+   comparing the filename portion of a word to be completed with directory
+   entries from the filesystem. This takes the address of the partial word
+   to be completed, after any rl_filename_dequoting_function has been applied.
+   The function should either return its first argument (if no conversion
+   takes place) or newly-allocated memory. This can, for instance, convert
+   the filename portion of the completion word to a character set suitable
+   for comparison against directory entries read from the filesystem (after
+   their potential modification by rl_filename_rewrite_hook). 
+   The returned value is what is added to the list of matches.
+   The second argument is the length of the filename to be converted. */
+extern rl_dequote_func_t *rl_completion_rewrite_hook;
+
 /* Backwards compatibility with previous versions of readline. */
 #define rl_symbolic_link_hook rl_directory_completion_hook
 
@@ -991,6 +1007,12 @@ extern int rl_filename_display_desired;
    ALWAYS non-zero on entry, and can only be changed within a completion
    entry finder function. */
 extern int rl_filename_quoting_desired;
+
+/* Non-zero means we should apply filename-type quoting to all completions
+   even if we are not otherwise treating the matches as filenames. This is
+   ALWAYS zero on entry, and can only be changed within a completion entry
+   finder function. */
+extern int rl_full_quoting_desired;
 
 /* Set to a function to quote a filename in an application-specific fashion.
    Called with the text to quote, the type of match found (single or multiple)
@@ -1153,6 +1175,10 @@ extern int rl_persistent_signal_handlers;
 #define RL_STATE_TIMEOUT	0x4000000	/* done; timed out */
 #define RL_STATE_EOF		0x8000000	/* done; got eof on read */
 
+/* begin_clink_change */
+#define RL_STATE_READSTR	0x10000000	/* reading a string */
+/* end_clink_change */
+
 #define RL_SETSTATE(x)		(rl_readline_state |= (x))
 #define RL_UNSETSTATE(x)	(rl_readline_state &= ~(x))
 #define RL_ISSTATE(x)		(rl_readline_state & (x))
@@ -1168,7 +1194,7 @@ struct readline_state {
   char *prompt;
 
   /* global state */
-  int rlstate;
+  int rlstate;		/* XXX -- needs to be unsigned long */
   int done;
   Keymap kmap;
 
