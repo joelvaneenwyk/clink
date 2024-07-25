@@ -24,13 +24,14 @@
 #include <assert.h>
 
 //------------------------------------------------------------------------------
+static bool is_console(HANDLE h);
 extern setting_bool g_save_history;
 extern setting_enum g_history_timestamp;
 
 //------------------------------------------------------------------------------
 static bool s_diag = false;
 static bool s_showtime = false;
-static history_timeformatter s_timeformatter;
+static history_timeformatter s_timeformatter(!is_console(GetStdHandle(STD_OUTPUT_HANDLE)));
 
 //------------------------------------------------------------------------------
 class terminal_scope
@@ -350,9 +351,10 @@ static int32 print_help()
     };
 
     static const char* const help_options[] = {
-        "--bare",        "Omit item numbers when printing history.",
+        "--bare",        "Omit item numbers and timestamps when printing history.",
         "--diag",        "Print diagnostic info to stderr.",
         "--show-time",   "Show history item timestamps, if any.",
+        "--no-show-time",   "Omit history item timestamps when printing history.",
         "--time-format", "Override the format string for showing timestamps.",
         "--unique",      "Remove duplicates when compacting history.",
         nullptr
@@ -467,6 +469,8 @@ int32 history(int32 argc, char** argv)
             uniq = true;
         else if (is_flag(argv[i], "--show-time", 3))
             s_showtime = true;
+        else if (is_flag(argv[i], "--no-show-time", 3))
+            s_showtime = false;
         else if (is_flag(argv[i], "--time-format", 3))
         {
             s_showtime = true;

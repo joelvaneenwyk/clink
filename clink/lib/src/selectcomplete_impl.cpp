@@ -18,6 +18,7 @@
 #include "line_editor_integration.h"
 #include "rl_integration.h"
 #include "suggestions.h"
+#include "slash_translation.h"
 #ifdef SHOW_VERT_SCROLLBARS
 #include "scroll_car.h"
 #endif
@@ -1067,6 +1068,14 @@ void selectcomplete_impl::init_matches()
             if (dbg_get_env_int("DEBUG_EXPANDABBREV"))
                 printf("\x1b[s\x1b[H\x1b[97;48;5;22mEXPANDED:  \"%s\" + \"%s\" (%s)\x1b[m\x1b[K\x1b[u", expanded.c_str(), in, disambiguated ? "UNIQUE" : "ambiguous");
 #endif
+            if (disambiguated)
+            {
+                expanded.concat(in);
+                assert(in + strlen(in) == tmp.c_str() + tmp.length());
+            }
+
+            do_slash_translation(expanded, strpbrk(tmp.c_str(), "/\\"));
+
             if (!disambiguated)
             {
 stop:
@@ -1084,8 +1093,6 @@ stop:
             }
             else
             {
-                expanded.concat(in);
-                assert(in + strlen(in) == tmp.c_str() + tmp.length());
                 in = tmp.c_str() + tmp.length();
                 if (path::is_separator(expanded[expanded.length() - 1]))
                     goto stop;
@@ -1504,9 +1511,7 @@ void selectcomplete_impl::update_display()
                         const int32 reserve_cols = 1;
 #endif
                         const bool right_justify = m_widths.m_right_justify;
-                        const int32 col_max = ((show_descriptions && !right_justify) ?
-                                               m_screen_cols - reserve_cols :
-                                               min<int32>(m_screen_cols - 1, m_widths.column_width(col))) - col_extra;
+                        const int32 col_max = min<int32>(m_screen_cols - reserve_cols, m_widths.column_width(col)) - col_extra;
 
                         const int32 selected = (i == m_index);
                         const char* const display = m_matches.get_match_display(i);
@@ -1562,11 +1567,12 @@ void selectcomplete_impl::update_display()
                         }
 
                         const int32 next = i + minor_stride;
+                        const width_t max_match_len = m_widths.max_match_len(col);
 
                         if (show_descriptions && !right_justify)
                         {
-                            pad_filename(printed_len, -m_widths.m_max_match, selected);
-                            printed_len = m_widths.m_max_match;
+                            pad_filename(printed_len, -max_match_len, selected);
+                            printed_len = max_match_len;
                         }
 
                         const char* desc = m_desc_below ? nullptr : m_matches.get_match_description(i);
@@ -1581,7 +1587,7 @@ void selectcomplete_impl::update_display()
 #endif
                             const int32 pad_to = (right_justify ?
                                 max<int32>(printed_len + m_widths.m_desc_padding, col_max - (m_matches.get_match_visible_description(i) + parens)) :
-                                m_widths.m_max_match + 4);
+                                max_match_len + m_widths.m_desc_padding);
                             if (pad_to < m_screen_cols - 1)
                             {
                                 const bool use_sel_color = (selected && right_justify);

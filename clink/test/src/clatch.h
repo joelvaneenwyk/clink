@@ -6,6 +6,8 @@
 #include <exception>
 #include <functional>
 
+#include <core/os.h>
+
 namespace clatch {
 
 //------------------------------------------------------------------------------
@@ -15,6 +17,7 @@ struct colors
     static bool get_colored() { return *get_colored_storage(); }
     static const char* get_ok() { return get_colored() ? "\x1b[92m" : ""; }
     static const char* get_error() { return get_colored() ? "\x1b[91m" : ""; }
+    static const char* get_warning() { return get_colored() ? "\x1b[93m" : ""; }
     static const char* get_normal() { return get_colored() ? "\x1b[m" : ""; }
 
 private:
@@ -100,7 +103,7 @@ struct cleanup
 };
 
 //------------------------------------------------------------------------------
-inline bool run(const char* prefix="")
+inline bool run(const char* prefix="", bool times=false)
 {
     int32 fail_count = 0;
     int32 test_count = 0;
@@ -115,9 +118,10 @@ inline bool run(const char* prefix="")
             continue;
 
         ++test_count;
-        printf("......... %s", test->m_name);
+        printf(".........%s %s", times ? "........" : "", test->m_name);
 
         section root;
+        const double clock = os::clock();
 
         try
         {
@@ -145,7 +149,14 @@ inline bool run(const char* prefix="")
         }
 
         assert_count += root.m_assert_count;
-        printf("\r%sok%s \n", colors::get_ok(), colors::get_normal());
+        printf("\r%sok%s ", colors::get_ok(), colors::get_normal());
+        if (times)
+        {
+            const uint32 elapsed = uint32((os::clock() - clock) * 1000);
+            const char* time_color = (elapsed >= 500) ? colors::get_warning() : colors:: get_normal();
+            printf("%s%5u ms%s ", time_color, elapsed, colors::get_normal());
+        }
+        printf("\n");
     }
 
     const char* tests_color = fail_count ?  colors::get_normal() : colors::get_ok();
@@ -177,8 +188,8 @@ inline void fail(const char* expr, const char* file, int32 line)
 }
 
 //------------------------------------------------------------------------------
-template <typename CALLBACK>
-void fail(const char* expr, const char* file, int32 line, CALLBACK&& cb)
+template <typename callback>
+void fail(const char* expr, const char* file, int32 line, callback&& cb)
 {
     puts("\n");
     printf(colors::get_error());

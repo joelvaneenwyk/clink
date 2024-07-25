@@ -885,6 +885,24 @@ bool get_alias(const char* name, str_base& out)
 }
 
 //------------------------------------------------------------------------------
+bool set_alias(const char* name, const char* command)
+{
+    if (!name || !command)
+    {
+        errno = EINVAL;
+    }
+    else
+    {
+        wstr<32> wname(name);
+        wstr<32> wcommand(command);
+        if (AddConsoleAliasW(wname.data(), wcommand.data(), const_cast<wchar_t*>(s_shell_name)))
+            return true;
+        map_errno();
+    }
+    return false;
+}
+
+//------------------------------------------------------------------------------
 bool get_short_path_name(const char* path, str_base& out)
 {
     wstr<> wpath(path);
@@ -1388,7 +1406,7 @@ bool disambiguate_abbreviated_path(const char*& in, str_base& out)
         assert(wnext.length());
         if (path::is_separator(wnext[wnext.length() - 1]))
         {
-            const wchar_t ch = PATH_SEP_CHAR;
+            const wchar_t ch = wnext[wnext.length() - 1];
             disambiguated.concat(&ch, 1);
             assert(unique);
             break;
@@ -1495,7 +1513,7 @@ close_bail:
         disambiguated.truncate(committed);
         if (path::is_separator(wnext.c_str()[0]))
         {
-            const wchar_t ch = PATH_SEP_CHAR;
+            const wchar_t ch = wnext.c_str()[0];
             disambiguated.concat(&ch, 1);
         }
         disambiguated << wadd;

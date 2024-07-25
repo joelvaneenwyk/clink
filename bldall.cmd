@@ -38,11 +38,13 @@ for /f %%a in ('where msbuild.exe 2^>nul') do (
 	goto :gotmsbuild
 )
 
-set __MSBUILD="%ProgramFiles%\Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin\MSBuild.exe"
+set __MSBUILD="%ProgramFiles(x86)%\Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin\MSBuild.exe"
 if exist %__MSBUILD% goto gotmsbuild
 set __MSBUILD="%ProgramFiles(x86)%\Microsoft Visual Studio\2019\Enterprise\MSBuild\Current\Bin\MSBuild.exe"
 if exist %__MSBUILD% goto gotmsbuild
 set __MSBUILD="%ProgramFiles(x86)%\Microsoft Visual Studio\2017\Enterprise\MSBuild\15.0\Bin\MSBuild.exe"
+if exist %__MSBUILD% goto gotmsbuild
+set __MSBUILD="%ProgramFiles(x86)%\Microsoft Visual Studio\2022\BuildTools\MSBuild\17.0\Bin\MSBuild.exe"
 if exist %__MSBUILD% goto gotmsbuild
 set __MSBUILD="%ProgramFiles(x86)%\Microsoft Visual Studio\2019\BuildTools\MSBuild\15.0\Bin\MSBuild.exe"
 if exist %__MSBUILD% goto gotmsbuild
@@ -137,9 +139,9 @@ rem	echo   -q               Quit immediately on any error.
 	echo   /rel             Or /release or /shp or /ship.
 	echo   /fin             Or /final.
 	echo.
-	if x%__SLN% == x echo warning: Unable to find VS2019 ^(or VS2017^) clink.sln file.
+	if x%__SLN% == x echo warning: Unable to find VS2022, VS2019, or VS2017 clink.sln file.
 	if not x%__SLN% == x echo Using SLN file:  %__SLN%
-	if not exist %__MSBUILD% echo warning: Unable to find VS2019 ^(or VS2017^) Enterprise installation.
+	if not exist %__MSBUILD% echo warning: Unable to find VS2022, VS2019, or VS2017 Enterprise installation.
 	if exist %__MSBUILD% echo Using MSBuild:   %__MSBUILD%
 	goto :eof
 )

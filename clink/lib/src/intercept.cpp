@@ -258,8 +258,30 @@ intercept_result intercept_directory(const char* line, str_base* out, bool only_
     if (out)
     {
         path::normalise_separators(tmp);
-        out->format(" cd /d \"%s\"", tmp.c_str());
+        make_cd_command(tmp.c_str(), *out);
     }
 
     return intercept_result::chdir;
 }
+
+void make_cd_command(const char* dir, str_base& out)
+{
+    str<> drive;
+    out.clear();
+    if (path::get_drive(dir, drive))
+    {
+        str<> cwd;
+        str<> cwd_drive;
+        os::get_current_dir(cwd);
+        path::get_drive(cwd.c_str(), cwd_drive);
+        if (!drive.iequals(cwd_drive.c_str()))
+        {
+            // `cd /d` requires command extensions, so for broadest
+            // compatibility just specify the drive explicitly.
+            out.format(" %s & cd \"%s\"", drive.c_str(), dir);
+            return;
+        }
+    }
+    out.format(" cd \"%s\"", dir);
+}
+

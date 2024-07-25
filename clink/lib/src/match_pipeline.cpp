@@ -7,6 +7,7 @@
 #include "match_pipeline.h"
 #include "matches_impl.h"
 #include "display_matches.h"
+#include "slash_translation.h"
 
 #include <core/array.h>
 #include <core/path.h>
@@ -48,6 +49,8 @@ setting_bool g_files_system(
     false);
 
 extern setting_enum g_default_bindings;
+extern setting_enum g_translate_slashes;
+extern setting_bool g_match_wild;
 
 
 
@@ -130,7 +133,7 @@ static void select_matches(const char* needle, INDEXER& indexer, uint32 count)
     uint32 found = 0;
 
     const bool dot_prefix = (rl_completion_type == '%' && g_default_bindings.get() == 1);
-    if (dot_prefix)
+    if (dot_prefix || g_match_wild.get())
     {
         str<> pat(needle);
         pat << "*";
@@ -309,6 +312,21 @@ void match_pipeline::generate(
 
     m_matches.set_word_break_position(state.get_end_word_offset());
 
+    // Detect what kind of slash to use in case slash translation mode ends up
+    // being automatic.  Generators can change the mode, so don't check it here.
+    char sep = 0;
+    str<32> endword;
+    state.get_end_word(endword);
+    for (const char* p = endword.c_str(); *p; ++p)
+    {
+        if (*p == '/' || *p == '\\')
+        {
+            sep = *p;
+            break;
+        }
+    }
+    m_matches.set_path_separator(sep);
+
     match_builder builder(m_matches);
     if (generator)
         generator->generate(states, builder, old_filtering);
@@ -436,6 +454,7 @@ void match_pipeline::select(const char* needle) const
     {
         match_info_indexer indexer(m_matches.get_infos());
         select_matches(needle, indexer, count);
+        m_matches.set_completion_type(rl_completion_type);
     }
 
     m_matches.coalesce(count);

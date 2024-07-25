@@ -21,6 +21,7 @@
 #include "display_readline.h"
 #include "line_buffer.h"
 #include "ellipsify.h"
+#include "line_editor_integration.h"
 #ifdef USE_SUGGESTION_HINT_COMMENTROW
 #include "rl/rl_commands.h"
 #include "suggestions.h"
@@ -1587,6 +1588,40 @@ void display_manager::end_prompt_lf()
 }
 
 //------------------------------------------------------------------------------
+static void write_with_clear(FILE* stream, const char* text, int length)
+{
+    int remaining = length;
+    while (remaining > 0)
+    {
+        bool erase_in_line = true;
+
+        const char* eol = strpbrk(text, "\r\n");
+        length = eol ? int(eol - text) : remaining;
+        if (length > 0)
+        {
+            measure_columns mc(measure_columns::print);
+            mc.measure(text, length, true/*is_prompt*/);
+            if (!mc.get_column() && mc.get_line_count() > 1)
+                erase_in_line = false;
+            rl_fwrite_function(stream, text, length);
+            text += length;
+            remaining -= length;
+        }
+
+        if (eol)
+        {
+            while (remaining > 0 && (*text == '\r' || *text == '\n'))
+                ++text, --remaining;
+            length = int(text - eol);
+            if (erase_in_line)
+                rl_fwrite_function(stream, "\x1b[K", 3);
+            if (length > 0)
+                rl_fwrite_function(stream, eol, length);
+        }
+    }
+}
+
+//------------------------------------------------------------------------------
 void display_manager::display()
 {
     if (!_rl_echoing_p)
@@ -1661,7 +1696,7 @@ void display_manager::display()
     if (prompt || rl_display_prompt == rl_prompt)
     {
         if (prompt_prefix && forced_display)
-            rl_fwrite_function(_rl_out_stream, prompt_prefix, strlen(prompt_prefix));
+            write_with_clear(_rl_out_stream, prompt_prefix, strlen(prompt_prefix));
     }
     else
     {
@@ -1675,7 +1710,7 @@ void display_manager::display()
             const int32 pmtlen = int32(prompt - rl_display_prompt);
             if (forced_display)
             {
-                rl_fwrite_function(_rl_out_stream, rl_display_prompt, pmtlen);
+                write_with_clear(_rl_out_stream, rl_display_prompt, pmtlen);
                 // Make sure we are at column zero even after a newline,
                 // regardless of the state of terminal output processing.
                 if (pmtlen < 2 || prompt[-2] != '\r')
@@ -2334,17 +2369,20 @@ test_left:
     _rl_last_c_pos = rcol;
 
     // Clear anything leftover from o.
-    if (o && d->m_lastcol < o->m_lastcol)
+    const uint32 lastcol = (o ? o->m_lastcol : _rl_screenwidth);
+    if (d->m_lastcol < lastcol)
     {
         if (use_eol_opt)
         {
+            // Using _rl_screenwidth is more accurate than lastcol, because
+            // the escape code clears to the screen width.
             _rl_clear_to_eol(_rl_screenwidth - rcol);
         }
         else
         {
             // m_lastcol does not include filler spaces; and that's fine since
             // the spaces use FACE_NORMAL.
-            const uint32 erase_cols = o->m_lastcol - d->m_lastcol;
+            const uint32 erase_cols = lastcol - d->m_lastcol;
 
             move_to_column(d->m_lastcol);
 
@@ -2610,7 +2648,7 @@ void clear_comment_row()
 
 //------------------------------------------------------------------------------
 #if defined (INCLUDE_CLINK_DISPLAY_READLINE)
-void defer_clear_lines(uint32 prompt_lines)
+void defer_clear_lines(uint32 prompt_lines, bool transient)
 {
     str<16> up;
     if (prompt_lines > 0)
@@ -2622,7 +2660,10 @@ void defer_clear_lines(uint32 prompt_lines)
     rl_fwrite_function(_rl_out_stream, up.c_str(), up.length());
     _rl_last_c_pos = 0;
 
-    s_defer_clear_lines = prompt_lines + _rl_vis_botlin + 1;
+    if (transient)
+        s_defer_clear_lines = prompt_lines + _rl_vis_botlin + 1;
+    else if (is_sparse_prompt_spacing())
+        s_defer_clear_lines = max<uint32>(s_defer_clear_lines, 1);
 }
 #endif
 

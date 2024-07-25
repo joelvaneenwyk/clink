@@ -1,6 +1,6 @@
 # What is Clink?
 
-Clink combines the native Windows shell cmd.exe with the powerful command line editing features of the GNU Readline library, which provides rich completion, history, and line-editing capabilities. Readline is best known for its use in the Unix shell Bash, the standard shell for Mac OS X and many Linux distributions.
+Clink combines the native Windows shell cmd.exe with the powerful command line editing features of the GNU Readline library, which provides rich completion, history, and line-editing capabilities. Readline is best known for its use in the Unix shell Bash, the standard shell for many Linux distributions.
 
 <a name="features"></a>
 
@@ -458,12 +458,13 @@ Name                         | Default [*](#alternatedefault) | Description
 <a name="clink_max_input_rows"></a>`clink.max_input_rows` | `0` | Limits how many rows the input line can use, up to the terminal height.  When this is `0` (the default), the terminal height is the limit.
 <a name="clink_paste_crlf"></a>`clink.paste_crlf` | `crlf` | What to do with CR and LF characters on paste. Setting this to `delete` deletes them, `space` replaces them with spaces, `ampersand` replaces them with ampersands, and `crlf` pastes them as-is (executing commands that end with a newline).
 <a name="clink_dot_path"></a>`clink.path` | | A list of paths from which to load Lua scripts. Multiple paths can be delimited semicolons.
+<a name="clink_popup_search_mode"></a>`clink.popup_search_mode` | `find` | When this is `find`, typing in popup lists moves to the next matching item.  When this is `filter`, typing in popup lists filters the list.
 <a name="clink_promptfilter"></a>`clink.promptfilter` | True | Enable [prompt filtering](#customising-the-prompt) by Lua scripts.
 <a name="clink_update_interval"></a>`clink.update_interval` | `5` | The Clink autoupdater will wait this many days between update checks (see [Automatic Updates](#automatic-updates)).
 <a name="cmd_admin_title_prefix"></a>`cmd.admin_title_prefix` | | When set, this replaces the "Administrator: " console title prefix.
 <a name="cmd_altf4_exits"></a>`cmd.altf4_exits` | True | When set, pressing <kbd>Alt</kbd>-<kbd>F4</kbd> exits the cmd.exe process.
 <a name="cmd_auto_answer"></a>`cmd.auto_answer` | `off` | Automatically answers cmd.exe's "Terminate batch job (Y/N)?" prompts. `off` = disabled, `answer_yes` = answer Y, `answer_no` = answer N.
-<a name="ctrld_exits"></a>`cmd.ctrld_exits` | True | <kbd>Ctrl</kbd>-<kbd>D</kbd> exits the cmd.exe process when it is pressed on an empty line.
+<a name="ctrld_exits"></a>`cmd.ctrld_exits` | True [*](#alternatedefault) | <kbd>Ctrl</kbd>-<kbd>D</kbd> exits the cmd.exe process when it is pressed on an empty line.
 <a name="cmd_get_errorlevel"></a>`cmd.get_errorlevel` | True | When this is enabled, Clink runs a hidden `echo %errorlevel%` command before each interactive input prompt to retrieve the last exit code for use by Lua scripts.  If you experience problems, try turning this off.  This is on by default.
 <a name="color_arg"></a>`color.arg` |  | The color for arguments in the input line when [`clink.colorize_input`](#clink_colorize_input) is enabled.
 <a name="color_arginfo"></a>`color.arginfo` | `yellow` [*](#alternatedefault) | Argument info color.  Some argmatchers may show that some flags or arguments accept additional arguments, when listing possible completions.  This color is used for those additional arguments.  (E.g. the "dir" in a "-x dir" listed completion.)
@@ -497,6 +498,7 @@ Name                         | Default [*](#alternatedefault) | Description
 <a name="directories_dupe_mode"></a>`directories.dupe_mode` | `add` | Controls how the current directory history is updated.  A value of `add` (the default) always adds the current directory to the directory history.  A value of `erase_prev` will erase any previous entries for the current directory and then add it to the directory history.  Note that directory history is not saved between sessions.
 <a name="doskey_enhanced"></a>`doskey.enhanced` | True | Enhanced Doskey adds the expansion of macros that follow `\|` and `&` command separators and respects quotes around words when parsing `$1`...`$9` tags. To suppress macro expansion for an individual command, prefix the command with a space or semicolon (<code>&nbsp;foo</code> or `;foo`). Or following `\|` or `&`, prefix with two spaces or a semicolon (<code>foo\|&nbsp; bar</code> or `foo\|;bar`).
 <a name="exec_aliases"></a>`exec.aliases` | True | When matching executables as the first word ([`exec.enable`](#exec_enable)), include doskey aliases.
+<a name="exec_associations"></a>`exec.associations` | False | When matching executables as the first word ([`exec.enable`](#exec_enable)), include files with a registered file association (e.g. launchable documents such as ".pdf" files).
 <a name="exec_commands"></a>`exec.commands` | True | When matching executables as the first word ([`exec.enable`](#exec_enable)), include CMD commands (such as `cd`, `copy`, `exit`, `for`, `if`, etc).
 <a name="exec_cwd"></a>`exec.cwd` | True | When matching executables as the first word ([`exec.enable`](#exec_enable)), include executables in the current directory. (This is implicit if the word being completed is a relative path, or if [`exec.files`](#exec_files) is true.)
 <a name="exec_dirs"></a>`exec.dirs` | True | When matching executables as the first word ([`exec.enable`](#exec_enable)), also include directories relative to the current working directory as matches.
@@ -517,7 +519,7 @@ Name                         | Default [*](#alternatedefault) | Description
 <a name="history_show_preview"></a>`history.show_preview` | True | When enabled, if the text at the cursor is subject to history expansion, then this shows a preview of the expanded result below the input line using the [`color.comment_row`](#color_comment_row) setting.
 <a name="history_sticky_search"></a>`history.sticky_search` | False | When enabled, reusing a history line does not add the reused line to the end of the history, and it leaves the history search position on the reused line so next/prev history can continue from there (e.g. replaying commands via <kbd>Up</kbd> several times then <kbd>Enter</kbd>, <kbd>Down</kbd>, <kbd>Enter</kbd>, etc).
 <a name="history_time_format"></a>`history.time_format` | <code>%F %T &nbsp</code> | This specifies a time format string for showing timestamps for history items.  For a list of format specifiers see <code>clink set history.time_format</code> or [History Timestamps](#history-timestamps).
-<a name="history_time_stamp"></a>`history.time_stamp` | `off` | The default is `off`.  When this is `save`, timestamps are saved for each history item but are only shown when the `--show-time` flag is used with the `history` command.  When this is `show`, timestamps are saved for each history item, and timestamps are shown in the `history` command unless the `--bare` flag is used.
+<a name="history_time_stamp"></a>`history.time_stamp` | `off` | The default is `off`.  When this is `save`, timestamps are saved for each history item but are only shown when the `--show-time` flag is used with the `history` command.  When this is `show`, timestamps are saved for each history item, and timestamps are shown in the `history` command unless the `--bare` or `--no-show-time` flag is used.
 <a name="lua_break_on_error"></a>`lua.break_on_error` | False | Breaks into Lua debugger on Lua errors.
 <a name="lua_break_on_traceback"></a>`lua.break_on_traceback` | False | Breaks into Lua debugger on `traceback()`.
 <a name="lua_debug"></a>`lua.debug` | False | Loads a simple embedded command line debugger when enabled. Breakpoints can be added by calling [pause()](#pause).
@@ -536,7 +538,7 @@ Name                         | Default [*](#alternatedefault) | Description
 <a name="match_preview_rows"></a>`match.preview_rows` | `0` | The number of rows to show as a preview when using the [`clink-select-complete`](#rlcmd-clink-select-complete) command (bound by default to <kbd>Ctrl</kbd>-<kbd>Space</kbd>).  When this is 0, all rows are shown and if there are too many matches it instead prompts first like the [`complete`](#rlcmd-complete) command does.  Otherwise it shows the specified number of rows as a preview without prompting, and it expands to show the full set of matches when the selection is moved past the preview rows.
 <a name="match_sort_dirs"></a>`match.sort_dirs` | `with` | How to sort matching directory names. `before` = before files, `with` = with files, `after` = after files.
 <a name="match_substring"></a>`match.substring` | False [*](#alternatedefault) | When set, if no completions are found with a prefix search, then a substring search is used.
-<a name="match_translate_slashes"></a>`match.translate_slashes` | `system` | File and directory completions can be translated to use consistent slashes.  The default is `system` to use the appropriate path separator for the OS host (backslashes on Windows).  Use `slash` to use forward slashes, or `backslash` to use backslashes.  Use `off` to turn off translating slashes from custom match generators.
+<a name="match_translate_slashes"></a>`match.translate_slashes` | `auto` | File and directory completions can be translated to use consistent slashes.  The default is `auto` which translates all slashes in the completed word to match the first kind of slash in the word (or the system path separator if the word didn't have any slashes before being completed).  Use `slash` for forward slashes, `backslash` for backslashes, or `system` for the appropriate path separator for the OS host (backslashes on Windows).  Use `off` to turn off translating slashes.
 <a name="match_wild"></a>`match.wild` | True | Matches `?` and `*` wildcards and leading `.` when using any of the completion commands.  Turn this off to behave how bash does, and not match wildcards or leading dots (but [`glob-complete-word`](#rlcmd-glob-complete-word) always matches wildcards).
 <a name="prompt_async"></a>`prompt.async` | True | Enables [asynchronous prompt refresh](#asyncpromptfiltering).  Turn this off if prompt filter refreshes are annoying or cause problems.
 <a name="prompt_spacing"></a>`prompt.spacing` | `normal` | The default is `normal` which never removes or adds blank lines.  Set to `compact` to remove blank lines before the prompt, or set to `sparse` to remove blank lines and then add one blank line.
@@ -1438,6 +1440,7 @@ Command | Key | Description
 <a name="rlcmd-clink-shift-space"></a>`clink-shift-space` | <kbd>Shift</kbd>-<kbd>Space</kbd> | Invoke the normal <kbd>Space</kbd> key binding, so that <kbd>Shift</kbd>-<kbd>Space</kbd> behaves the same as <kbd>Space</kbd>.
 <a name="rlcmd-clink-show-help"></a>`clink-show-help` | <kbd>Alt</kbd>-<kbd>h</kbd> | Show all key bindings.  A numeric argument affects showing categories and descriptions:  0 for neither, 1 for categories, 2 for descriptions, 3 for categories and descriptions (the default).  Add 4 to include unbound commands.
 <a name="rlcmd-clink-show-help-raw"></a>`clink-show-help-raw` | | Show raw key sequence strings for all key bindings.  A numeric argument affects showing categories and descriptions:  0 for neither, 1 for categories, 2 for descriptions, 3 for categories and descriptions (the default).  Add 4 to include unbound commands.
+<a name="rlcmd-clink-toggle-slashes"></a>`clink-toggle-slashes` | <kbd>Ctrl</kbd>-<kbd>/</kbd> | Toggle between forward and backslashes in the word at the cursor point, or toggle in the <em>n</em>-th word if a numeric argument is provided via the [`digit-argument`](#rlcmd-digit-argument) keys.
 <a name="rlcmd-clink-up-directory"></a>`clink-up-directory` | <kbd>Ctrl</kbd>-<kbd>PgUp</kbd> | Execute `cd ..` to move up one directory.
 <a name="rlcmd-clink-what-is"></a>`clink-what-is` | <kbd>Alt</kbd>-<kbd>Shift</kbd>-<kbd>/</kbd> | Show the key binding for the next key sequence input.  If a numeric argument is supplied, the raw key sequence string is shown instead of the friendly key name.
 <a name="rlcmd-cua-backward-bigword"></a>`cua-backward-bigword` | | Extend the selection backward one space delimited word.
@@ -1462,7 +1465,7 @@ Command | Key | Description
 <a name="rlcmd-history-expand-line"></a>`history-expand-line` | | A synonym for [`clink-expand-history`](#rlcmd-clink-expand-history).
 <a name="rlcmd-insert-last-argument"></a>`insert-last-argument` | | A synonym for [`yank-last-arg`](#rlcmd-yank-last-arg).
 <a name="rlcmd-magic-space"></a>`magic-space` | | Perform [history expansion](#using-history-expansion) on the text before the cursor position and insert a space.
-<a name="rlcmd-old-menu-complete-backward"></a>`old-menu-complete-backward` | | Like [`old-menu-complete`](#rlcmd-old-menu-complete), but in reverse. This behaves like the default completion in cmd.exe on Windows. When Clink is installed using the setup program with the "Autorun when cmd.exe starts" box checked or when [`clink.default_bindings`](#clink_default_bindings) is set to `windows`, then this is bound by default to <kbd>Shift</kbd>-<kbd>Tab</kbd>.
+<a name="rlcmd-old-menu-complete-backward"></a>`old-menu-complete-backward` | | Like [`old-menu-complete`](#rlcmd-old-menu-complete), but in reverse. This behaves like the default completion in cmd.exe on Windows. When Clink is installed using the setup program with the "Use enhanced default settings" box checked or when [`clink.default_bindings`](#clink_default_bindings) is set to `windows`, then this is bound by default to <kbd>Shift</kbd>-<kbd>Tab</kbd>.
 <a name="rlcmd-remove-history"></a>`remove-history` | <kbd>Alt</kbd>-<kbd>Ctrl</kbd>-<kbd>d</kbd> | While searching history, removes the current line from the history.
 <a name="rlcmd-shell-expand-line"></a>`shell-expand-line` | <kbd>Alt</kbd>-<kbd>Ctrl</kbd>-<kbd>e</kbd> | A synonym for [`clink-expand-line`](#rlcmd-clink-expand-line).
 <a name="rlcmd-win-copy-history-number"></a>`win-copy-history-number` | <kbd>F9</kbd> | Enter a history number and replace the input line with the history entry (mimics Windows console <kbd>F9</kbd>).
@@ -1592,10 +1595,12 @@ Most of the popup windows also have incremental search:
 Key | Description
 :-:|---
 Typing|Typing does an incremental search.
+<kbd>F1</kbd>|Open this help topic in the default web browser.
 <kbd>F3</kbd>|Go to the next match.
 <kbd>Ctrl</kbd>-<kbd>L</kbd>|Go to the next match.
 <kbd>Shift</kbd>-<kbd>F3</kbd>|Go to the previous match.
 <kbd>Ctrl</kbd>-<kbd>Shift</kbd>-<kbd>L</kbd>|Go to the previous match.
+<kbd>F4</kbd>|Toggle the search mode between "find" and "filter".  When the search mode is filter, typing filters the list instead of doing an incremental search (only in v1.6.13 and higher).  Use the [clink.popup_search_mode](#clink_popup_search_mode) setting to set the default search mode.
 
 The [`win-history-list`](#rlcmd-win-history-list) command has a different search feature.  Typing digits `0`-`9` jumps to the numbered history entry, or typing a letter jumps to the preceding history entry that begins with the typed letter.  <kbd>Left</kbd>/<kbd>Right</kbd> inserts the highlighted command history entry without executing it.  These are for compatibility with the <kbd>F7</kbd> behavior built into Windows console prompts.
 
@@ -2089,7 +2094,7 @@ An argmatcher can supply "on advance" or "on arg" functions to be called when th
 - An "[on arg](#the-on-arg-function)" function is called _when_ parsing a word.  It can examine the word and do custom processing.
 - An "[on link](#the-on-link-function)" function is called _after_ parsing a word.  It can examine the word and override what argmatcher it links to (see [Linking Parsers](#argmatcher_linking)).
 
-All of these callback functions receive a `user_data` table.  When parsing begins, the `user_data` is an empty table.  Each time a flag or argument links to another argmatcher, the new argmatcher gets a separate new empty `user_data` table.  Your "on advance" and "on arg" and "on link" functions can set data into the table, and functions called later during parsing can get the data that was set by earlier functions (for example to keep track of what flags were specified earlier in the command line).
+All of these callback functions receive a `user_data` table.  Your "on advance" and "on arg" and "on link" functions can set data into the table, and functions called later during parsing can get the data that was set by earlier functions (for example to keep track of what flags were specified earlier in the command line).  When parsing begins for a command, the `user_data` is an empty table.  Each time a flag or argument links to another argmatcher, the new argmatcher gets a separate new empty `user_data` table.  In Clink v1.6.10 and higher, each `user_data` table contains a `shared_user_data` field which is a reference to another table.  The `user_data.shared_user_data` enables linked argmatchers to share data with each other while parsing a command.
 
 > **Note:** These callback functions are called very often, so they need to be very fast or they can cause responsiveness problems while typing.
 
@@ -2104,7 +2109,7 @@ The function receives five arguments:
 - `word` is a partial string for the word under the cursor, corresponding to the argument being parsed:  it is an empty string, or if a filename is being entered then it will be the path portion (e.g. for "dir1\dir2\pre" `word` will be "dir1\dir2\").
 - `word_index` is the word index in `line_state`, corresponding to the argument being parsed.
 - `line_state` is a [line_state](#line_state) object that contains the words for the associated command line.
-- `user_data` is a table that the argmatcher can use to help it parse the input line.
+- `user_data` is a table that the argmatcher can use to help it parse the input line (see [Responding to Arguments in Argmatchers](#responsive-argmatchers) for details).
 
 The function may return any of the following values:
 - Return `1` to advance to the next argument position _before_ parsing the word (normally the parser advances _after_ parsing a word).  Multiple advances are possible for the same word:  if the "on advance" functions for argument positions 2, 3, and 4 all return `1`, then argument position 5 will parse the word.
@@ -2176,7 +2181,7 @@ The function receives five arguments:
 - `word` is a partial string for the word under the cursor, corresponding to the argument being parsed:  it is an empty string, or if a filename is being entered then it will be the path portion (e.g. for "dir1\dir2\pre" `word` will be "dir1\dir2\").
 - `word_index` is the word index in `line_state`, corresponding to the argument being parsed.
 - `line_state` is a [line_state](#line_state) object that contains the words for the associated command line.
-- `user_data` is a table that the argmatcher can use to help it parse the input line.
+- `user_data` is a table that the argmatcher can use to help it parse the input line (see [Responding to Arguments in Argmatchers](#responsive-argmatchers) for details).
 
 The function doesn't return anything.
 
@@ -2210,7 +2215,7 @@ The function receives six arguments:
 - `word` is a partial string for the word under the cursor, corresponding to the argument being parsed:  it is an empty string, or if a filename is being entered then it will be the path portion (e.g. for "dir1\dir2\pre" `word` will be "dir1\dir2\").
 - `word_index` is the word index in `line_state`, corresponding to the argument being parsed.
 - `line_state` is a [line_state](#line_state) object that contains the words for the associated command line.
-- `user_data` is a table that the argmatcher can use to help it parse the input line.
+- `user_data` is a table that the argmatcher can use to help it parse the input line (see [Responding to Arguments in Argmatchers](#responsive-argmatchers) for details).
 
 The function may return any of the following:
 - Return an argmatcher to override subsequent parsing and use the specified argmatcher.
@@ -2384,7 +2389,7 @@ end
 
 A [match generator](#matchgenerators) or [argmatcher](#argumentcompletion) or [luafunc: key binding](#luakeybindings) can use [clink.onfiltermatches()](#clink.onfiltermatches) to register a function that will be called after matches are generated but before they are displayed or inserted (this is reset every time match generation is invoked).
 
-The function receives a table argument containing the matches to be displayed, a string argument indicating the completion type, and a boolean argument indicating whether filename completion is desired. The table argument has a `match` string field and a `type` string field; these are the same as in [builder:addmatch()](#builder:addmatch).
+The function receives a table argument containing the matches to be displayed, a string argument indicating the completion type, and a boolean argument indicating whether filename completion is desired. The table argument has a `match` string field and a `type` string field; these are the same as in [builder:addmatch()](#builder:addmatch). In Clink v1.6.5 and newer, the table includes the full set of match fields, especially including the `display` field.
 
 The possible completion types are:
 
@@ -2548,7 +2553,7 @@ The classifier function is passed up to six arguments:
 - `word_index` is the word index in `line_state`, corresponding to the argument for which matches are being generated.
 - `line_state` is a [line_state](#line_state) object that contains the words for the associated command line.
 - `classifications` is a [word_classifications](#word_classifications) object which can be used to apply colors.
-- In Clink v1.5.17 and higher, `user_data` is a table that the argmatcher can use to help it parse the input line.  See [Responding to Arguments in Argmatchers](#responsive-argmatchers) for more information about the `user_data` table.
+- In Clink v1.5.17 and higher, `user_data` is a table that the argmatcher can use to help it parse the input line (see [Responding to Arguments in Argmatchers](#responsive-argmatchers) for details).
 
 Words are colored by classifying the words, and each classification has an associated color.  See [word_classifications:classifyword()](#word_classifications:classifyword) for the available classification codes.
 
@@ -3035,7 +3040,7 @@ Use <code>clink set <a href="#history_time_stamp">history.time_stamp</a> off</co
 
 Use `clink set history.time_stamp save` to save timestamps for each history item but only show them in the `history` command when the `--show-time` flag is used.  They may also be shown when a `clink-popup-history` or `win-history-list` key binding is pressed, if a non-zero [numeric argument](#readline-arguments) is supplied.
 
-Use `clink set history.time_stamp show` to save timestamps for each history item and show them in the `history` command unless the `--bare` flag is used.  They're also shown when a `clink-popup-history` or `win-history-list` key binding is pressed, unless a [numeric argument](#readline-arguments) argument of zero is supplied.
+Use `clink set history.time_stamp show` to save timestamps for each history item and show them in the `history` command unless the `--bare` or `--no-show-time` flag is used.  They're also shown when a `clink-popup-history` or `win-history-list` key binding is pressed, unless a [numeric argument](#readline-arguments) argument of zero is supplied.
 
 Use <code>clink set <a href="#history_time_format">history.time_format</a> <span class="arg">format</span></code> to specify the format for showing timestamps (the default format is <code>%F %T &nbsp</code>).
 

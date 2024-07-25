@@ -1,8 +1,11 @@
 ### Overview
 
-Clink combines the native Windows shell cmd.exe with the powerful command line editing features of the GNU Readline library, which provides rich completion, history, and line-editing capabilities. Readline is best known for its use in the Unix shell Bash, the standard shell for Mac OS X and many Linux distributions.
+Clink combines the native Windows shell cmd.exe with the powerful command line editing features of the GNU Readline library, which provides rich completion, history, and line-editing capabilities. Readline is best known for its use in the Unix shell Bash, the standard shell for many Linux distributions.
 
 For details, refer to the [Clink documentation](https://chrisant996.github.io/clink/clink.html).
+
+> [!NOTE]
+> Starting Clink injects it into a `cmd.exe` process, where it intercepts a handful of Windows API functions so that it can replace the prompt and input line editing with its own Readline-powered enhancements.
 
 ### Download
 
@@ -37,14 +40,19 @@ Once installed, there are several ways to start Clink.
 
 1. If Clink is configured for autorun, just start `cmd.exe` and Clink is automatically injected and ready to use.
 
-> The setup EXE has an option "Autorun when cmd.exe starts".  If you didn't use the setup EXE, or if you want to enable or disable autorun later, you can run `clink autorun install` or `clink autorun uninstall` to change the autorun configuration.  Run `clink autorun --help` for more info.
+    > The setup EXE has an option "Autorun when cmd.exe starts".  If you didn't use the setup EXE, or if you want to enable or disable autorun later, you can run `clink autorun install` or `clink autorun uninstall` to change the autorun configuration.  Run `clink autorun --help` for more info.
 
 2. To manually start, run the Clink shortcut from the Start menu (or the clink.bat located in the install directory).
 3. To establish Clink to an existing `cmd.exe` process, use `clink inject`.
 
-> If the Clink install directory isn't in the PATH, then use <code><span class="arg">install_dir</span>\clink</code> in place of `clink` to run Clink commands.  Once Clink is injected into a `cmd.exe` process, then it automatically sets an alias so that you can simply use `clink`.
+    > If the Clink install directory isn't in the PATH, then use <code><span class="arg">install_dir</span>\clink</code> in place of `clink` to run Clink commands.  Once Clink is injected into a `cmd.exe` process, then it automatically sets an alias so that you can simply use `clink`.
 
-Starting Clink injects it into a `cmd.exe` process, where it intercepts a handful of Windows API functions so that it can replace the prompt and input line editing with its own Readline-powered enhancements.
+You can use Clink right away without configuring anything:
+
+- Searchable [command history](#saved-command-history) will be saved between sessions.
+- <kbd>Tab</kbd> and <kbd>Ctrl</kbd>+<kbd>Space</kbd> will do match completion two different ways.
+- Press <kbd>Alt</kbd>+<kbd>H</kbd> to see a list of the current key bindings.
+- Press <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>/</kbd> followed by another key to see what command is bound to the key.
 
 See [Getting Started](https://chrisant996.github.io/clink/clink.html#getting-started) for information on how to get started with using Clink.
 
@@ -58,17 +66,20 @@ Clink can be extended through its Lua API which allows easy creation of context 
 
 ### Building Clink
 
-Clink uses [Premake](http://premake.github.io) to generate Visual Studio solutions or makefiles for MinGW. Note that Premake >= 5.0-alpha12 is required.
+Clink uses [Premake](http://premake.github.io) to generate Visual Studio solutions or makefiles for MinGW. Note that Premake >= 5.0.0-beta1 is required.
 
 1. Cd to your clone of Clink.
 2. Run <code>premake5.exe <span class="arg">toolchain</span></code> (where <span class="arg">toolchain</span> is one of Premake's actions - see `premake5.exe --help`)
-3. Build scripts will be generated in <code>.build\<span class="arg">toolchain</span></code>. For example `.build\vs2019\clink.sln`.
+3. Build scripts will be generated in <code>.build\<span class="arg">toolchain</span></code>. For example `.build\vs2022\clink.sln`.
 4. Call your toolchain of choice (VS, mingw32-make.exe, msbuild.exe, etc). GNU makefiles (Premake's *gmake* target) have a **help** target for more info.
 
 ### Building Documentation
 
-1. Run `npm install -g marked` to install the [marked](https://marked.js.org) markdown library.
+1. Run `npm install -g marked@2.0.1` to install the [marked](https://marked.js.org) markdown library (version 2.0.1).
 2. Run `premake5.exe docs`.
+
+> [!IMPORTANT]
+> Clink documentation uses marked@2.0.1.  Newer versions of marked have introduced breaking changes, and I haven't yet rewritten how Clink builds the documentation to accommodate the breaking changes.  The security fixes in newer versions aren't relevant since marked is only used at build time with known inputs (the marked library is no longer embedded in the documentation as of commit [d5b39ca](https://github.com/chrisant996/clink/commit/d5b39caf7a1a4353ab8e474e0a26c4f7981e9c3c) in Oct 2020).
 
 ### Debugging Clink
 
@@ -101,7 +112,8 @@ To debug the actual DLL injection procedure, you must debug both the `clink_x64.
   - Observe the value of `region.base` before the `CreateRemoteThread` call executes -- this is the address of the instruction payload that has been copied into the target CMD.exe process.
   - Set a breakpoint in the target CMD.exe process for that address -- when `CreateRemoteThread` executes, it will transfer execution to that address in the target CMD.exe process, and you can debug through the execution of the instruction payload itself.
 
-> **Note:**  If the instruction payload references any functions or variables from the Clink process, it will crash during execution inside the target CMD.exe process.  Compiler features like the "just my code", "edit and continue", "omit frame pointers", exception handling, inlining, and runtime checks must be configured appropriately to keep the instruction payload self-contained (see the "clink_process" lib in the premake5.lua file).
+> [!CAUTION]
+> If the instruction payload references any functions or variables from the Clink process, it will crash during execution inside the target CMD.exe process.  Compiler features like the "just my code", "edit and continue", "omit frame pointers", exception handling, inlining, and runtime checks must be configured appropriately to keep the instruction payload self-contained (see the "clink_process" lib in the premake5.lua file).
 
 ### Debugging Lua Scripts
 

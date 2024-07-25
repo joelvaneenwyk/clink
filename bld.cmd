@@ -44,9 +44,13 @@ set __MSBUILD="%ProgramFiles(x86)%\Microsoft Visual Studio\2019\Enterprise\MSBui
 if exist %__MSBUILD% goto gotmsbuild
 set __MSBUILD="%ProgramFiles(x86)%\Microsoft Visual Studio\2017\Enterprise\MSBuild\15.0\Bin\MSBuild.exe"
 if exist %__MSBUILD% goto gotmsbuild
+set __MSBUILD="%ProgramFiles%\Microsoft Visual Studio\2022\BuildTools\MSBuild\17.0\Bin\MSBuild.exe"
+if exist %__MSBUILD% goto gotmsbuild
 set __MSBUILD="%ProgramFiles(x86)%\Microsoft Visual Studio\2019\BuildTools\MSBuild\15.0\Bin\MSBuild.exe"
 if exist %__MSBUILD% goto gotmsbuild
 set __MSBUILD="%ProgramFiles(x86)%\MSBuild\Current\Bin\MSBuild.exe"
+if exist %__MSBUILD% goto gotmsbuild
+set __MSBUILD="%ProgramFiles%\MSBuild\17.0\Bin\MSBuild.exe"
 if exist %__MSBUILD% goto gotmsbuild
 set __MSBUILD="%ProgramFiles(x86)%\MSBuild\15.0\Bin\MSBuild.exe"
 if exist %__MSBUILD% goto gotmsbuild

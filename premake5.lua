@@ -52,6 +52,8 @@ local function setup_cfg(cfg)
 
     filter { "configurations:" .. cfg, "platforms:arm64" }
         targetsuffix("_arm64")
+
+    filter {}
 end
 
 
@@ -210,6 +212,8 @@ workspace("clink")
     exceptionhandling("off")
     defines("HAVE_CONFIG_H")
     defines("HANDLE_MULTIBYTE")
+
+    includedirs(".build")               -- for clink_commit.h
 
     setup_cfg("final")
     setup_cfg("release")

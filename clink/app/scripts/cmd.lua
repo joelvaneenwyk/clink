@@ -115,7 +115,7 @@ function cmd_classifier:classify(commands) -- luacheck: no self
     end
 end
 
-local chain = clink.argmatcher():chaincommand()
+local chain = clink.argmatcher():chaincommand("cmdquotes") -- CMD's command line has special handling for quotes.
 local colors = clink.argmatcher():addarg({fromhistory=true})
 
 local function first_sentence(s)
@@ -186,7 +186,7 @@ local function delayinit(argmatcher)
                 flag = flag:lower()
                 local stripped, arginfo = flag:match("^(/t:)([^%s]*)")
                 flag = stripped or flag
-                if not descriptions[flag][1] then
+                if descriptions[flag] and not descriptions[flag][1] then
                     finish_pending()
                     pending.flag = flag
                     pending.arginfo = arginfo
@@ -214,12 +214,16 @@ local function delayinit(argmatcher)
     :addflags({
         "/c"..chain, "/C"..chain,
         "/k"..chain, "/K"..chain,
+        "/r"..chain, "/R"..chain,
         "/s", "/q", "/d", "/a", "/u",
         "/S", "/Q", "/D", "/A", "/U",
         "/t:"..colors, "/T:"..colors,
         "/e:on", "/e:off", "/e:"..onoff["e"], "/E:"..onoff["e"],
         "/f:on", "/f:off", "/f:"..onoff["f"], "/F:"..onoff["f"],
         "/v:on", "/v:off", "/v:"..onoff["v"], "/V:"..onoff["v"],
+        "/x", "/y",
+        "/X", "/Y",
+        "/?",
     })
     :nofiles()
     :adddescriptions(descriptions)
@@ -230,6 +234,10 @@ local function delayinit(argmatcher)
         "/e:", "/E:",
         "/f:", "/F:",
         "/v:", "/V:",
+        "/x", "/X",
+        "/y", "/Y",
+        "/r", "/R",
+        "/?",
     })
 end
 

@@ -69,10 +69,6 @@ Var uninstallerExe
 
 ;-------------------------------------------------------------------------------
 Function cleanLegacyInstall
-    IfFileExists $INSTDIR\..\clink_uninstall.exe +3 0
-        DetailPrint "Install does not trample an existing one."
-        Return
-
     ; Start menu items and uninstall registry entry.
     ;
     StrCpy $0 "Software\Microsoft\Windows\CurrentVersion\Uninstall"
@@ -82,7 +78,7 @@ Function cleanLegacyInstall
 
     ; Install dir
     ;
-    Delete /REBOOTOK $INSTDIR\..\clink*
+    Delete /REBOOTOK $INSTDIR
 
     ; Migrate state to the new location.
     ;
@@ -118,6 +114,11 @@ Function cleanPreviousInstalls
 FunctionEnd
 
 ;-------------------------------------------------------------------------------
+Function cleanPreviousUninstallers
+    Delete /REBOOTOK $INSTDIR\clink_uninstall*.exe
+FunctionEnd
+
+;-------------------------------------------------------------------------------
 Section "!Application files" app_files_id
     SectionIn RO
     SetShellVarContext all
@@ -141,6 +142,10 @@ Section "!Application files" app_files_id
         File ${CLINK_BUILD}\clink_dll_arm*.dll
         File ${CLINK_BUILD}\clink_arm*.exe
     ${EndIf}
+
+    ; Clean up previous uninstallers.
+    ;
+    Call cleanPreviousUninstallers
 
     ; Create an uninstaller.
     ;
@@ -365,7 +370,7 @@ SectionEnd
 
 ;-------------------------------------------------------------------------------
 LangString desc_app_files           ${LANG_ENGLISH} "Installs the Clink application files."
-LangString desc_enhanced_defaults   ${LANG_ENGLISH} "Pre-configures Clink with several popular enhancements enabled, including colors and familiar key bindings designed for Windows.  Any of them can be changed after installation."
+LangString desc_enhanced_defaults   ${LANG_ENGLISH} "Pre-configures Clink with several popular enhancements enabled, including colors and some familiar CMD key bindings.  Any of them can be changed after installation.  Refer to the Getting Started docs for more info."
 LangString desc_add_shortcuts       ${LANG_ENGLISH} "Adds Start Menu shortcuts for Clink and its documentation."
 LangString desc_clink_dir           ${LANG_ENGLISH} "Sets %CLINK_DIR% to the Clink install location."
 LangString desc_autorun             ${LANG_ENGLISH} "Configures the CMD.EXE AutoRun regkey to inject Clink when CMD.EXE starts.  This can be convenient, but also makes starting CMD.EXE always a little slower."

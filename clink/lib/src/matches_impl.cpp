@@ -5,6 +5,7 @@
 #include "matches_impl.h"
 #include "match_generator.h"
 #include "match_pipeline.h"
+#include "slash_translation.h"
 
 #include <core/base.h>
 #include <core/os.h>
@@ -27,21 +28,18 @@ char* __printable_part(char* text);
 #include <assert.h>
 
 //------------------------------------------------------------------------------
-static int32 s_slash_translation = 0;
-void set_slash_translation(int32 mode) { s_slash_translation = mode; }
-int32 get_slash_translation() { return s_slash_translation; }
-
-//------------------------------------------------------------------------------
-static setting_enum g_translate_slashes(
+setting_enum g_translate_slashes(
     "match.translate_slashes",
     "Translate slashes and backslashes",
     "File and directory completions can be translated to use consistent slashes.\n"
-    "The default is 'system' to use the appropriate path separator for the OS host\n"
-    "(backslashes on Windows).  Use 'slash' to use forward slashes, or 'backslash'\n"
-    "to use backslashes.  Use 'off' to turn off translating slashes from custom\n"
-    "match generators.",
-    "off,system,slash,backslash",
-    1
+    "The default is 'auto' which translates all slashes in the completed word to\n"
+    "match the first kind of slash in the word (or the system path separator if\n"
+    "the word didn't have any slashes before being completed).  Use 'slash' for\n"
+    "forward slashes, 'backslash' for backslashes, or 'system' for the appropriate\n"
+    "path separator for the OS host (backslashes on Windows).  Use 'off' to turn\n"
+    "off translating slashes.",
+    "off,system,slash,backslash,auto", // IMPORTANT: Keep this in sync with slash_translation.h!
+    slash_translation::automatic
 );
 
 static setting_bool g_substring(
@@ -400,7 +398,7 @@ static char* __tilde_expand(const char* in)
 {
     str_moveable tmp;
     path::tilde_expand(in, tmp);
-    return tmp.detach();
+    return tmp.empty() ? nullptr: tmp.detach();
 }
 
 //------------------------------------------------------------------------------
@@ -905,13 +903,15 @@ void matches_impl::reset()
     m_regen_blocked = false;
     m_nosort = false;
     m_volatile = false;
+    m_sep = '\0';
+    m_completion_type = 0;
     m_suppress_quoting = 0;
     m_word_break_position = -1;
     m_filename_completion_desired.reset();
     m_filename_display_desired.reset();
     m_input_line.clear();
 
-    s_slash_translation = g_translate_slashes.get();
+    set_slash_translation(g_translate_slashes.get());
 }
 
 //------------------------------------------------------------------------------
@@ -934,6 +934,8 @@ void matches_impl::transfer(matches_impl& from)
     m_regen_blocked = from.m_regen_blocked;
     m_nosort = from.m_nosort;
     m_volatile = from.m_volatile;
+    m_sep = from.m_sep;
+    m_completion_type = from.m_completion_type;
     m_suppress_quoting = from.m_suppress_quoting;
     m_word_break_position = from.m_word_break_position;
     m_filename_completion_desired = from.m_filename_completion_desired;
@@ -979,6 +981,8 @@ void matches_impl::copy(const matches_impl& from)
     m_regen_blocked = from.m_regen_blocked;
     m_nosort = from.m_nosort;
     m_volatile = from.m_volatile;
+    m_sep = from.m_sep;
+    m_completion_type = from.m_completion_type;
     m_suppress_quoting = from.m_suppress_quoting;
     m_word_break_position = from.m_word_break_position;
     m_filename_completion_desired = from.m_filename_completion_desired;
@@ -991,6 +995,12 @@ void matches_impl::clear()
 {
     reset();
     m_store.clear();
+}
+
+//------------------------------------------------------------------------------
+void matches_impl::set_completion_type(int32 type)
+{
+    m_completion_type = type;
 }
 
 //------------------------------------------------------------------------------
@@ -1029,6 +1039,12 @@ void matches_impl::set_fully_qualify(bool fully_qualify)
 void matches_impl::set_word_break_position(int32 position)
 {
     m_word_break_position = position;
+}
+
+//------------------------------------------------------------------------------
+void matches_impl::set_path_separator(char sep)
+{
+    m_sep = sep;
 }
 
 //------------------------------------------------------------------------------
@@ -1101,12 +1117,13 @@ bool matches_impl::add_match(const match_desc& desc, bool already_normalized)
     // only when `clink.slash_translation` is enabled.  already_normalized means
     // desc has already been normalized to system format, and a performance
     // optimization can skip translation if system format is configured.
-    int32 mode = (s_slash_translation &&
-                (is_match_type(type, match_type::dir) ||
-                 is_match_type(type, match_type::file) ||
-                 (is_match_type(type, match_type::none) &&
-                  m_filename_completion_desired.get()))) ? s_slash_translation : 0;
-    bool translate = (mode > 0 && (mode > 1 || !already_normalized));
+    const int32 mode = get_slash_translation();
+    const bool translate = (mode > slash_translation::off &&
+                            (mode > slash_translation::system || !already_normalized) &&
+                            (is_match_type(type, match_type::dir) ||
+                             is_match_type(type, match_type::file) ||
+                             (is_match_type(type, match_type::none) &&
+                              m_filename_completion_desired.get())));
 
     str<280> tmp;
     const bool is_none = is_match_type(type, match_type::none);
@@ -1126,15 +1143,7 @@ bool matches_impl::add_match(const match_desc& desc, bool already_normalized)
 
     if (translate)
     {
-        assert(mode > 0);
-        int32 sep;
-        switch (mode)
-        {
-        default:    sep = 0; break;
-        case 2:     sep = '/'; break;
-        case 3:     sep = '\\'; break;
-        }
-        path::normalise_separators(tmp, sep);
+        do_slash_translation(tmp, &m_sep);
         match = tmp.c_str();
     }
 
@@ -1211,10 +1220,12 @@ void matches_impl::done_building()
                             (m_filename_completion_desired.get() || !m_filename_completion_desired.is_explicit())))
     {
         char sep = rl_preferred_path_separator;
-        if (s_slash_translation == 2)
-            sep = '/';
-        else if (s_slash_translation == 3)
-            sep = '\\';
+        switch (get_slash_translation())
+        {
+        case slash_translation::slash:      sep = '/'; break;
+        case slash_translation::backslash:  sep = '\\'; break;
+        case slash_translation::automatic:  sep = m_sep; break;
+        }
 
         for (uint32 i = m_count; i--;)
         {

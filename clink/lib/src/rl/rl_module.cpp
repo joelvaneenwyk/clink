@@ -22,6 +22,7 @@
 #include "line_editor_integration.h"
 #include "rl_integration.h"
 #include "suggestions.h"
+#include "slash_translation.h"
 
 #include <core/base.h>
 #include <core/os.h>
@@ -1493,6 +1494,14 @@ static char** alternative_matches(const char* text, int32 start, int32 end)
             if (dbg_get_env_int("DEBUG_EXPANDABBREV"))
                 printf("\x1b[s\x1b[H\x1b[97;48;5;22mEXPANDED:  \"%s\" + \"%s\" (%s)\x1b[m\x1b[K\x1b[u", expanded.c_str(), in, disambiguated ? "UNIQUE" : "ambiguous");
 #endif
+            if (disambiguated)
+            {
+                expanded.concat(in);
+                assert(in + strlen(in) == tmp.c_str() + tmp.length());
+            }
+
+            do_slash_translation(expanded, strpbrk(tmp.c_str(), "/\\"));
+
             if (!disambiguated)
             {
 stop:
@@ -1509,8 +1518,6 @@ stop:
             }
             else
             {
-                expanded.concat(in);
-                assert(in + strlen(in) == tmp.c_str() + tmp.length());
                 in = tmp.c_str() + tmp.length();
                 if (path::is_separator(expanded[expanded.length() - 1]))
                     goto stop;
@@ -2100,8 +2107,6 @@ void initialise_readline(const char* shell_name, const char* state_dir, const ch
         clink_add_funmap_entry("clink-old-menu-complete-numbers", clink_old_menu_complete_numbers, keycat_completion, "Like 'old-menu-complete' using numbers from the current screen");
         clink_add_funmap_entry("clink-old-menu-complete-numbers-backward", clink_old_menu_complete_numbers_backward, keycat_completion, "Like 'old-menu-complete-backward' using numbers from the current screen");
         clink_add_funmap_entry("clink-paste", clink_paste, keycat_basic, "Paste text from the clipboard at the cursor point");
-        // clink_add_funmap_entry("clink-popup-complete", clink_select_complete, keycat_completion, "Perform completion by selecting from an interactive list of possible completions; if there is only one match, insert it");
-        rl_add_funmap_entry("clink-popup-complete", clink_select_complete);
         clink_add_funmap_entry("clink-popup-complete-numbers", clink_popup_complete_numbers, keycat_completion, "Perform interactive completion from a list of numbers from the current screen");
         clink_add_funmap_entry("clink-popup-directories", clink_popup_directories, keycat_misc, "Show recent directories in a popup list.  In the popup, use Enter to 'cd /d' to the selected directory");
         clink_add_funmap_entry("clink-popup-history", clink_popup_history, keycat_history, "Show history entries in a popup list.  Filters using any text before the cursor point.  In the popup, use Enter to execute the selected history entry");
@@ -2119,6 +2124,7 @@ void initialise_readline(const char* shell_name, const char* state_dir, const ch
         clink_add_funmap_entry("clink-shift-space", clink_shift_space, keycat_misc, "Invoke the normal Space key binding, so that Shift-Space behaves the same as Space");
         clink_add_funmap_entry("clink-show-help", show_rl_help, keycat_misc, "Show all key bindings.  A numeric argument affects showing categories and descriptions:  0=neither, 1=categories, 2=descriptions, 3=both (default).  Add 4 to include unbound commands");
         clink_add_funmap_entry("clink-show-help-raw", show_rl_help_raw, keycat_misc, "Show raw key sequence strings for all key bindings");
+        clink_add_funmap_entry("clink-toggle-slashes", clink_toggle_slashes, keycat_misc, "Toggle between forward and backslashes in the word at the cursor point, or in the Nth word if a numeric argument is provided");
         clink_add_funmap_entry("clink-up-directory", clink_up_directory, keycat_misc, "Execute 'cd ..' to move up one directory");
         clink_add_funmap_entry("clink-what-is", clink_what_is, keycat_misc, "Show the key binding for the next key sequence input.  If a numeric argument is supplied, the raw key sequence string is shown instead of the friendly key name");
         clink_add_funmap_entry("cua-backward-bigword", cua_backward_bigword, keycat_select, "Extend the selection backward one space delimited word");
@@ -2152,12 +2158,20 @@ void initialise_readline(const char* shell_name, const char* state_dir, const ch
 
         clink_add_funmap_entry("clink-diagnostics", clink_diagnostics, keycat_misc, "Show internal diagnostic information");
 
-        // Alias some command names for convenient compatibility with bash .inputrc configuration entries.
-        rl_add_funmap_entry("alias-expand-line", clink_expand_doskey_alias);
-        rl_add_funmap_entry("history-and-alias-expand-line", clink_expand_history_and_alias);
-        rl_add_funmap_entry("history-expand-line", clink_expand_history);
-        rl_add_funmap_entry("insert-last-argument", rl_yank_last_arg);
-        rl_add_funmap_entry("shell-expand-line", clink_expand_line);
+        // IMPORTANT:  Aliased command names need to be defined after the real
+        // command name, so that rl.getbinding() returns the real command name.
+        {
+            // Alias some Clink commands.
+            // clink_add_funmap_entry("clink-popup-complete", clink_select_complete, keycat_completion, "Perform completion by selecting from an interactive list of possible completions; if there is only one match, insert it");
+            rl_add_funmap_entry("clink-popup-complete", clink_select_complete);
+
+            // Alias some command names for convenient compatibility with bash .inputrc configuration entries.
+            rl_add_funmap_entry("alias-expand-line", clink_expand_doskey_alias);
+            rl_add_funmap_entry("history-and-alias-expand-line", clink_expand_history_and_alias);
+            rl_add_funmap_entry("history-expand-line", clink_expand_history);
+            rl_add_funmap_entry("insert-last-argument", rl_yank_last_arg);
+            rl_add_funmap_entry("shell-expand-line", clink_expand_line);
+        }
 
         // Preemptively replace some commands with versions that support suggestions.
         clink_add_funmap_entry("forward-byte", clink_forward_byte, keycat_cursor, "Move forward a single byte, or insert suggestion");
@@ -2275,6 +2289,7 @@ void initialise_readline(const char* shell_name, const char* state_dir, const ch
         { "\\e[1;3B",       "clink-scroll-line-down" },  // alt-down
         { "\\e[1;5A",       "clink-scroll-line-up" },    // ctrl-up
         { "\\e[1;5B",       "clink-scroll-line-down" },  // ctrl-down
+        { "\\e[27;5;191~",  "clink-toggle-slashes" },    // ctrl-/
         { "\\e?",           "clink-what-is" },           // alt-? (alt-shift-/)
         { "\\e[27;8;191~",  "clink-show-help" },         // ctrl-alt-? (ctrl-alt-shift-/)
         { "\\e^",           "clink-expand-history" },    // alt-^
@@ -2765,7 +2780,7 @@ void rl_module::set_prompt(const char* prompt, const char* rprompt, bool redispl
     if (redisplay)
     {
         g_prompt_redisplay++;
-        defer_clear_lines(clear_lines);
+        defer_clear_lines(clear_lines, transient);
         rl_forced_update_display();
 
         lock_cursor(false);
@@ -3085,7 +3100,8 @@ void rl_module::on_input(const input& input, result& result, const context& cont
                                                               else if (old) return old->read();
                                                               else if (s_direct_input) return s_direct_input->read();
                                                               else return 0; }
-        virtual key_tester* set_key_tester(key_tester* keys) override { assert(false); return nullptr; }
+        virtual int32   peek() override                     { assert(false); return 0; }
+        virtual key_tester* set_key_tester(key_tester*) override { assert(false); return nullptr; }
         const char*  data;
         terminal_in* old;
     } term_in(input.keys, s_processed_input);
@@ -3093,10 +3109,6 @@ void rl_module::on_input(const input& input, result& result, const context& cont
     s_matches = &context.matches;
 
     // Call Readline's until there's no characters left.
-//#define USE_RESEND_HACK
-#ifdef USE_RESEND_HACK
-    int32 is_inc_searching = RL_ISSTATE(RL_STATE_ISEARCH);
-#endif
     uint32 len = input.len;
     rollback<uint32*> rb_input_len_ptr(s_input_len_ptr, &len);
     rollback<bool> rb_input_more(s_input_more, input.more);
@@ -3143,18 +3155,6 @@ void rl_module::on_input(const input& input, result& result, const context& cont
         // invoked function or macro returns, setting rl_last_func won't
         // "stick" unless it's set after rl_callback_read_char() returns.
         apply_pending_lastfunc();
-
-        // Internally Readline tries to resend escape characters but it doesn't
-        // work with how Clink uses Readline. So we do it here instead.
-#ifdef USE_RESEND_HACK
-        if (term_in.data[-1] == 0x1b && is_inc_searching)
-        {
-            assert(!is_quoted_insert);
-            --term_in.data;
-            ++len;
-            is_inc_searching = 0;
-        }
-#endif
     }
 
     g_result = nullptr;

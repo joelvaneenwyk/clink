@@ -63,6 +63,7 @@ int __stat_char (const char *filename, char match_type);
 extern setting_bool g_match_best_fit;
 extern setting_int g_match_limit_fitted;
 extern line_buffer* g_rl_buffer;
+int _rl_display_matches_prompted = false;
 rl_match_display_filter_func_t *rl_match_display_filter_func = nullptr;
 const char *_rl_description_color = nullptr;
 const char *_rl_filtered_color = nullptr;
@@ -926,8 +927,8 @@ static int32 display_match_list_internal(const match_adapter& adapter, const col
                 break;
 
             const int32 col_max = ((show_descriptions && !widths.m_right_justify) ?
-                                 cols - 1 :
-                                 widths.column_width(j));
+                                   cols - 1 :
+                                   widths.column_width(j)); // Allow to wrap lines.
 
             const match_type type = adapter.get_match_type(l);
             const char* const match = adapter.get_match(l);
@@ -973,7 +974,7 @@ static int32 display_match_list_internal(const match_adapter& adapter, const col
 #endif
                     const int32 pad_to = (right_justify ?
                         max<int32>(printed_len + widths.m_desc_padding, col_max - (adapter.get_match_visible_description(l) + parens)) :
-                        widths.m_max_match + 4);
+                        widths.max_match_len(j) + widths.m_desc_padding);
                     if (pad_to < cols - 1)
                     {
                         pad_filename(printed_len, pad_to, 0);
@@ -1040,6 +1041,8 @@ static int32 prompt_display_matches(int32 len)
 {
     end_prompt(1/*crlf*/);
 
+    _rl_display_matches_prompted = true;
+
     if (_rl_pager_color)
         _rl_print_pager_color();
     fprintf(rl_outstream, "Display all %d possibilities? (y or n)", len);
@@ -1061,6 +1064,8 @@ extern "C" void display_matches(char** matches)
     match_adapter adapter;
     char** rebuilt = nullptr;
     char* rebuilt_storage[3];
+
+    _rl_display_matches_prompted = false;
 
     // If there is a display filter, give it a chance to modify MATCHES.
     if (rl_match_display_filter_func)

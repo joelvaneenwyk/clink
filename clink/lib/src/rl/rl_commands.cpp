@@ -230,6 +230,43 @@ static void get_word_bounds(const line_buffer& buffer, int32* left, int32* right
         *right = int32(strlen(str));
 }
 
+//------------------------------------------------------------------------------
+bool toggle_slashes_in_rl_buffer(int32 offset, int32 length)
+{
+    str<1024> word;
+    word.concat(g_rl_buffer->get_buffer() + offset, length);
+
+    int32 sep = 0;
+    for (uint32 i = 0; i < word.length(); ++i)
+    {
+        if (path::is_separator(word[i]))
+        {
+            const int32 was = sep;
+            sep = word[i];
+            // If all separators are the same, then toggle to the other kind.
+            // If mixed separators exist, normalize all to the first kind.
+            if (was && was != sep)
+                break;
+        }
+    }
+
+    switch (sep)
+    {
+    case '/':   sep = '\\'; break;
+    case '\\':  sep = '/'; break;
+    default:    return false;
+    }
+
+    path::normalise_separators(word, sep);
+
+    g_rl_buffer->begin_undo_group();
+    g_rl_buffer->remove(offset, offset + length);
+    g_rl_buffer->set_cursor(offset);
+    g_rl_buffer->insert(word.c_str());
+    g_rl_buffer->end_undo_group();
+    return true;
+}
+
 
 
 //------------------------------------------------------------------------------
@@ -548,8 +585,7 @@ Nope:
     }
 
     std::vector<word> words;
-    if (!collect_words(*g_rl_buffer, words, collect_words_mode::whole_command))
-        goto Nope;
+    collect_words(*g_rl_buffer, words, collect_words_mode::whole_command);
     if (words.empty())
         goto Nope;
 
@@ -568,6 +604,7 @@ Nope:
     }
     else
     {
+        count = rl_numeric_arg;
         for (auto const& word : words)
         {
             if (count-- == 0)
@@ -753,6 +790,52 @@ int32 clink_magic_suggest_space(int32 count, int32 invoking_key)
     insert_suggestion(suggestion_action::insert_next_full_word);
     g_rl_buffer->insert(" ");
     return 0;
+}
+
+//------------------------------------------------------------------------------
+int32 clink_toggle_slashes(int32 count, int32 invoking_key)
+{
+    if (count < 0 || !g_rl_buffer)
+    {
+Nope:
+        rl_ding();
+        return 0;
+    }
+
+    std::vector<word> words;
+    collect_words(*g_rl_buffer, words, collect_words_mode::whole_command);
+    if (words.empty())
+        goto Nope;
+
+    if (!rl_explicit_arg)
+    {
+        uint32 line_cursor = g_rl_buffer->get_cursor();
+        for (auto const& word : words)
+        {
+            if (line_cursor >= word.offset &&
+                line_cursor <= word.offset + word.length)
+            {
+                if (!toggle_slashes_in_rl_buffer(word.offset, word.length))
+                    break;
+                return 0;
+            }
+        }
+    }
+    else
+    {
+        count = rl_numeric_arg;
+        for (auto const& word : words)
+        {
+            if (count-- == 0)
+            {
+                if (!toggle_slashes_in_rl_buffer(word.offset, word.length))
+                    break;
+                return 0;
+            }
+        }
+    }
+
+    goto Nope;
 }
 
 
@@ -2450,6 +2533,7 @@ int32 clink_diagnostics(int32 count, int32 invoking_key)
 
     static char bold[] = "\x1b[1m";
     static char norm[] = "\x1b[m";
+    static char err[] = "\x1b[1;91;40m";
     static char lf[] = "\n";
 
     str<> s;
@@ -2514,11 +2598,11 @@ int32 clink_diagnostics(int32 count, int32 invoking_key)
 
     // Language info.
 
-    if (rl_explicit_arg)
+    const DWORD cpid = GetACP();
+    if (rl_explicit_arg || cpid != 1252)
     {
         print_heading("language");
 
-        const DWORD cpid = GetACP();
         const DWORD kbid = LOWORD(GetKeyboardLayout(0));
         WCHAR wide_layout_name[KL_NAMELENGTH * 2];
         if (!GetKeyboardLayoutNameW(wide_layout_name))
@@ -2532,7 +2616,8 @@ int32 clink_diagnostics(int32 count, int32 invoking_key)
 
     // Terminal info.
 
-    if (rl_explicit_arg)
+    const char* const ansicon_problem = get_ansicon_problem();
+    if (rl_explicit_arg || ansicon_problem)
     {
         print_heading("terminal");
 
@@ -2556,6 +2641,17 @@ int32 clink_diagnostics(int32 count, int32 invoking_key)
             t = term;
 
         print_value("terminal", t.c_str());
+
+        if (ansicon_problem)
+        {
+            t.format("        %sProblem:  ANSICON detected (%s).%s\n"
+                     "        %sAvoid ANSICON on Windows 10 or greater; it's unnecessary,%s\n"
+                     "        %sless functional, and greatly degrades performance.%s\n",
+                     err, ansicon_problem, norm,
+                     err, norm,
+                     err, norm);
+            g_printer->print(t.c_str(), t.length());
+        }
     }
 
     host_call_lua_rl_global_function("clink._diagnostics");

@@ -34,6 +34,7 @@ extern int _rl_match_hidden_files;
 #include <mutex>
 #include <lmcons.h>
 #include <lmshare.h>
+#include <shlwapi.h>
 
 //------------------------------------------------------------------------------
 extern setting_bool g_files_hidden;
@@ -151,7 +152,7 @@ globber_lua::globber_lua(const char* pattern, int32 extrainfo, const glob_flags&
 }
 
 //------------------------------------------------------------------------------
-static bool glob_next(lua_State* state, globber& globber, str_base& parent, int32& index, int32 extrainfo);
+static bool glob_next(lua_State* state, globber& globber, str_base& parent, int32* index, int32 extrainfo);
 int32 globber_lua::next(lua_State* state)
 {
     // Arg is table into which to glob files/dirs; glob_next appends into it.
@@ -163,7 +164,7 @@ int32 globber_lua::next(lua_State* state)
     bool ret = false;
     for (size_t c = 0; c < num_max; c++)
     {
-        ret = glob_next(state, m_globber, m_parent, m_index, m_extrainfo);
+        ret = glob_next(state, m_globber, m_parent, &m_index, m_extrainfo);
         if (!ret)
             break;
         if (GetTickCount() - tick > ms_max)
@@ -176,6 +177,97 @@ int32 globber_lua::next(lua_State* state)
 
 //------------------------------------------------------------------------------
 int32 globber_lua::close(lua_State* state)
+{
+    m_globber.close();
+    return 0;
+}
+
+
+
+//------------------------------------------------------------------------------
+struct find_files_flags
+{
+    bool files = true;
+    bool dirs = true;
+    bool hidden = true;
+    bool system = false;
+    bool dirsuffix = true;
+};
+
+//------------------------------------------------------------------------------
+class find_files_lua
+    : public lua_bindable<find_files_lua>
+{
+public:
+                        find_files_lua(const char* pattern, int32 extrainfo, const find_files_flags& flags);
+
+protected:
+    int32               files(lua_State* state);
+    int32               next(lua_State* state);
+    int32               close(lua_State* state);
+
+private:
+    static int32        iter(lua_State* state);
+
+private:
+    globber             m_globber;
+    str<288>            m_parent;
+    int32               m_extrainfo;
+
+    friend class lua_bindable<find_files_lua>;
+    static const char* const c_name;
+    static const method c_methods[];
+};
+
+//------------------------------------------------------------------------------
+const char* const find_files_lua::c_name = "find_files_lua";
+const find_files_lua::method find_files_lua::c_methods[] = {
+    { "files",                  &files },
+    { "next",                   &next },
+    { "close",                  &close },
+    {}
+};
+
+//------------------------------------------------------------------------------
+find_files_lua::find_files_lua(const char* pattern, int32 extrainfo, const find_files_flags& flags)
+: m_globber(pattern)
+, m_parent(pattern)
+, m_extrainfo(extrainfo)
+{
+    path::to_parent(m_parent, nullptr);
+
+    m_globber.files(flags.files);
+    m_globber.directories(flags.dirs);
+    m_globber.hidden(flags.hidden);
+    m_globber.system(flags.system);
+    m_globber.suffix_dirs(flags.dirsuffix);
+}
+
+//------------------------------------------------------------------------------
+int32 find_files_lua::iter(lua_State* state)
+{
+    auto* self = check(state, lua_upvalueindex(1));
+    assert(self);
+    return self ? self->next(state) : 0;
+}
+
+//------------------------------------------------------------------------------
+int32 find_files_lua::files(lua_State* state)
+{
+    push(state);
+    lua_pushcclosure(state, iter, 1);
+    return 1;
+}
+
+//------------------------------------------------------------------------------
+int32 find_files_lua::next(lua_State* state)
+{
+    // On success, glob_next returns a string or a table.
+    return glob_next(state, m_globber, m_parent, nullptr, m_extrainfo) ? 1 : 0;
+}
+
+//------------------------------------------------------------------------------
+int32 find_files_lua::close(lua_State* state)
 {
     m_globber.close();
     return 0;
@@ -548,7 +640,7 @@ static void add_type_tag(str_base& out, const char* tag)
 }
 
 //------------------------------------------------------------------------------
-static bool glob_next(lua_State* state, globber& globber, str_base& parent, int32& index, int32 extrainfo)
+static bool glob_next(lua_State* state, globber& globber, str_base& parent, int32* index, int32 extrainfo)
 {
     str<288> file;
     globber::extrainfo info;
@@ -616,7 +708,8 @@ static bool glob_next(lua_State* state, globber& globber, str_base& parent, int3
         }
     }
 
-    lua_rawseti(state, -2, index++);
+    if (index)
+        lua_rawseti(state, -2, (*index)++);
     return true;
 }
 
@@ -690,14 +783,14 @@ int32 glob_impl(lua_State* state, bool dirs_only, bool back_compat=false)
     if (back_compat)
     {
         while (true)
-            if (!glob_next(state, globber, tmp, i, extrainfo))
+            if (!glob_next(state, globber, tmp, &i, extrainfo))
                 break;
     }
     else
     {
         while (true)
         {
-            if (!glob_next(state, globber, tmp, i, extrainfo))
+            if (!glob_next(state, globber, tmp, &i, extrainfo))
                 break;
             if (!(i & 0x03) && clink_is_signaled())
                 break;
@@ -834,6 +927,27 @@ int32 make_dir_globber(lua_State* state)
 int32 make_file_globber(lua_State* state)
 {
     return globber_impl(state, false);
+}
+
+//------------------------------------------------------------------------------
+int32 has_file_association(lua_State* state)
+{
+    const char* name = checkstring(state, 1);
+    if (!name)
+        return 0;
+
+    const char* ext = path::get_extension(name);
+    if (ext)
+    {
+        wstr<32> wext(ext);
+        DWORD cchOut = 0;
+        HRESULT hr = AssocQueryStringW(ASSOCF_INIT_IGNOREUNKNOWN|ASSOCF_NOFIXUPS, ASSOCSTR_EXECUTABLE, wext.c_str(), nullptr, nullptr, &cchOut);
+        if (FAILED(hr) || !cchOut)
+            ext = nullptr;
+    }
+
+    lua_pushboolean(state, !!ext);
+    return 1;
 }
 
 //------------------------------------------------------------------------------
@@ -1443,6 +1557,126 @@ static int32 enum_shares(lua_State* state)
 }
 
 //------------------------------------------------------------------------------
+static void get_bool_field(lua_State* state, const char* field, bool& out)
+{
+    lua_pushstring(state, field);
+    lua_rawget(state, -2);
+    if (!lua_isnoneornil(state, -1))
+        out = !!lua_toboolean(state, -1);
+    lua_pop(state, 1);
+}
+
+//------------------------------------------------------------------------------
+/// -name:  os.findfiles
+/// -ver:   1.6.13
+/// -arg:   pattern:string
+/// -arg:   [extrainfo:integer|boolean]
+/// -arg:   [flags:table]
+/// -ret:   object
+/// Returns an object that can be used to get files and/or directories matching
+/// <span class="arg">pattern</span>.
+///
+/// <strong>Note:</strong> any quotation marks (<code>"</code>) in
+/// <span class="arg">pattern</span> are stripped.
+///
+/// Unlike <a href="#os.globfiles">os.globfiles</a>, this only collects matching
+/// files or directories one at a time, instead of collecting all matches in a
+/// table.
+///
+/// The returned object has the following functions:
+/// <ul>
+/// <li><strong>next()</strong> - Returns the next file or directory, or nil
+/// where there are no more.
+/// <li><strong>files()</strong> - Returns a Lua iterator function which can be
+/// used in a <strong>for</strong> loop, returning the next file or directory
+/// each time.
+/// <li><strong>close()</strong> - Releases the OS resources used for the
+/// search.  This is automatically called by the Lua garbage collector, but that
+/// may not happen quickly enough to avoid interfering with operations such as
+/// deleting a parent directory, so it's good to call <code>:close()</code>
+/// directly.
+/// </ul>
+/// -show:  -- Print the first matching file, without wasting time collecting
+/// -show:  -- the rest of the files, since they aren't needed here.
+/// -show:  local ff = os.findfiles(pattern)
+/// -show:  local name = ff:next()
+/// -show:  print(name)
+/// -show:  ff:close()
+///
+/// By default <code>:next()</code> returns a string containing the name of the
+/// file or directory.  The optional <span class="arg">extrainfo</span> argument
+/// can instead return a table corresponding to one file or directory, with the
+/// following scheme:
+/// -show:  local ff = os.findfiles(pattern, extrainfo)
+/// -show:  local t = ff:next()
+/// -show:  -- Included when extrainfo is true or >= 1:
+/// -show:  --   t.name             -- [string] The file or directory name.
+/// -show:  --   t.type             -- [string] The match type (see below).
+/// -show:  -- Included when extrainfo is 2:
+/// -show:  --   t.size             -- [number] The file size, in bytes.
+/// -show:  --   t.atime            -- [number] The access time, compatible with os.time().
+/// -show:  --   t.mtime            -- [number] The modified time, compatible with os.time().
+/// -show:  --   t.ctime            -- [number] The creation time, compatible with os.time().
+/// -show:  ff:close()
+/// The <span class="tablescheme">type</span> string can be "file" or "dir", and
+/// may also contain ",hidden", ",readonly", ",link", and ",orphaned" depending
+/// on the attributes (making it usable as a match type for
+/// <a href="#builder:addmatch">builder:addmatch()</a>).
+///
+/// The optional <span class="arg">flags</span> argument can be a table with
+/// fields that select how finding files should behave.  By default files,
+/// directories, hidden files/directories are included, system
+/// files/directories are omitted, and directories have a <code>\</code> suffix.
+/// -show:  local flags = {
+/// -show:  &nbsp;   files = true,       -- True includes files, or false omits them.
+/// -show:  &nbsp;   dirs = true,        -- True includes directories, or false omits them.
+/// -show:  &nbsp;   hidden = true,      -- True includes hidden files (default), or false omits them.
+/// -show:  &nbsp;   system = false,     -- True includes system files, or false omits them (default).
+/// -show:  &nbsp;   dirsuffix = true,   -- True adds a \ suffix to directories, or false omits it.
+/// -show:  }
+/// -show:  local ff = os.findfiles(pattern, true, flags)
+/// -show:  for t in ff:files() do
+/// -show:  &nbsp;   print(t.name.." ("..t.type..")")
+/// -show:  end
+/// -show:  ff:close()
+static int32 find_files(lua_State* state)
+{
+    const char* pattern = checkstring(state, 1);
+    if (!pattern)
+        return 0;
+
+    int32 extrainfo = 0;
+    if (lua_isboolean(state, 2))
+        extrainfo = lua_toboolean(state, 2);
+    else if (!lua_istable(state, 2))
+        extrainfo = optinteger(state, 2, 0);
+
+    find_files_flags flags;
+    int argFlags = lua_istable(state, 2) ? 2 : 3;
+    if (lua_istable(state, argFlags))
+    {
+#ifdef DEBUG
+        int32 top = lua_gettop(state);
+#endif
+        lua_pushvalue(state, argFlags);
+
+        get_bool_field(state, "files", flags.files);
+        get_bool_field(state, "dirs", flags.dirs);
+        get_bool_field(state, "hidden", flags.hidden);
+        get_bool_field(state, "system", flags.system);
+        get_bool_field(state, "dirsuffix", flags.dirsuffix);
+
+        lua_pop(state, 1);
+#ifdef DEBUG
+        assert(lua_gettop(state) == top);
+#endif
+    }
+
+    find_files_lua::make_new(state, pattern, extrainfo, flags);
+    return 1;
+}
+
+//------------------------------------------------------------------------------
 /// -name:  os.touch
 /// -ver:   1.2.31
 /// -arg:   path:string
@@ -1775,6 +2009,30 @@ int32 get_aliases(lua_State* state)
         alias = c + wcslen(c) + 1;
     }
 
+    return 1;
+}
+
+//------------------------------------------------------------------------------
+/// -name:  os.setalias
+/// -ver:   1.6.11
+/// -arg:   name:string
+/// -arg:   command:string
+/// -ret:   boolean
+/// Sets a doskey alias <span class="arg">name</span> to
+/// <span class="arg">command</span>.  Returns true if successful, or returns
+/// false if not successful.
+///
+/// <strong>Note:</strong> For more information on the syntax of doskey aliases
+/// in Windows read documentation on the <code>doskey</code> command, or run
+/// <code>doskey /?</code> for a quick summary.
+int32 set_alias(lua_State* state)
+{
+    const char* name = checkstring(state, 1);
+    const char* command = checkstring(state, 2);
+    if (!name || !command)
+        return 0;
+
+    lua_pushboolean(state, os::set_alias(name, command));
     return 1;
 }
 
@@ -2684,6 +2942,7 @@ void os_lua_initialise(lua_state& lua)
         { "getpushddepth", &get_pushd_depth },
         { "getalias",    &get_alias },
         { "getaliases",  &get_aliases },
+        { "setalias",    &set_alias },
         { "resolvealias", &resolve_alias },
         { "getscreeninfo", &get_screen_info },
         { "getbatterystatus", &get_battery_status },
@@ -2705,11 +2964,13 @@ void os_lua_initialise(lua_state& lua)
         { "isuseradmin", &is_user_admin },
         { "getfileversion", &get_file_version },
         { "enumshares",  &enum_shares },
+        { "findfiles",   &find_files },
         // UNDOCUMENTED; internal use only.
         { "_globdirs",   &glob_dirs },  // Public os.globdirs method is in core.lua.
         { "_globfiles",  &glob_files }, // Public os.globfiles method is in core.lua.
         { "_makedirglobber", &make_dir_globber },
         { "_makefileglobber", &make_file_globber },
+        { "_hasfileassociation", &has_file_association },
     };
 
     lua_State* state = lua.get_state();

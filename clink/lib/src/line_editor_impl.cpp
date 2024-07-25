@@ -557,7 +557,10 @@ void line_editor_impl::update_matches()
     // Get flag states because we're about to clear them.
     bool generate = check_flag(flag_generate);
     bool restrict = check_flag(flag_restrict);
-    bool select = generate || restrict || check_flag(flag_select);
+    bool select = (generate ||
+                   restrict ||
+                   check_flag(flag_select) ||
+                   m_matches.get_completion_type() != rl_completion_type);
 
     // Clear flag states before running generators, so that generators can use
     // reset_generate_matches().
@@ -647,6 +650,22 @@ void line_editor_impl::dispatch(int32 bind_group)
     assert(check_flag(flag_editing));
 
     m_bind_resolver.set_group(prev_bind_group);
+}
+
+//------------------------------------------------------------------------------
+bool line_editor_impl::available(uint32 timeout)
+{
+    assert(check_flag(flag_init));
+    return m_desc.input->available(timeout);
+}
+
+//------------------------------------------------------------------------------
+uint8 line_editor_impl::peek()
+{
+    assert(check_flag(flag_init));
+    const int32 c = m_desc.input->peek();
+    assert(c < 0xf8);
+    return (c < 0) ? 0 : uint8(c);
 }
 
 //------------------------------------------------------------------------------
@@ -1456,6 +1475,10 @@ void line_editor_impl::try_suggest()
         if (!empty_matches && (!g_autosuggest_async.get() ||
                                (!check_flag(flag_generate) && !m_matches.is_volatile())))
         {
+            // Suggestions must use the TAB completion type, because they
+            // cannot work with wildcards or substrings.
+            rollback<int32> rb_completion_type(rl_completion_type, TAB);
+
             update_matches();
             matches = &m_matches;
         }
