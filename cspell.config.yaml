@@ -1,0 +1,11 @@
+version: "0.2"
+ignorePaths: []
+dictionaryDefinitions:
+  - name: clink
+    path: .github/config/clink.dict
+    addWords: true
+dictionaries:
+  - clink
+words: []
+ignoreWords: []
+import: []
