@@ -1,14 +1,17 @@
-_This todo list describes ChrisAnt996's current intended roadmap for Clink's future.  It is a living document and does not convey any guarantee about when or whether any item may be implemented._
+# Clink // Roadmap
 
-<br/>
+This `TODO` list describes `ChrisAnt996`'s current intended roadmap for Clink's future.  It is a living document and does not convey any guarantee about when or whether any item may be implemented.
 
-# IMPROVEMENTS
+## High Priority ❕❕
 
-## High Priority
+...
 
-## Unit Tests
+## Unit Tests 🧪
+
+...
 
 ## Normal Priority
+
 - Event handler enhancements.
   - Allow setting an optional `priority` when registering event handlers?  So that scripts can control the precedence of `onbeginedit`, `onendedit`, and so on.
   - Allow setting an optional `name` when registering event handlers?  So that scripts can cooperate to share a single named event.  But it's already possible for scripts to cooperate to achieve the same effect, e.g. by having an event handler that executes a function specified by a global variable.
@@ -19,18 +22,21 @@ _This todo list describes ChrisAnt996's current intended roadmap for Clink's fut
 - Some wizard for interactively viewing/modifying color settings.
 
 ## Low Priority
+
 - line_state parsed `foo^ bar` as a single word "foo^ bar", but CMD parses it as two words "foo" and "bar".  The parser is fixed now, but what about downstream edge cases where things check the next character after a word (or try to skip a run of spaces but get confused by `foo ^ ^ bar`)?
 - Open issue in Terminal repo about bugs in the new shell integration in v1.18.
   - Transient prompt can lead to Terminal getting confused about where prompt markers are.
   - Can the same thing happen with zsh and powerlevel10k transient prompt?
-  - Provide a sample .txt file that repros the issue.  Maybe multiple .txt files that chain together (or with a pause; is there an escape code for a pause?) to show the UX flow.
+  - Provide a sample `.txt` file that repros the issue.  Maybe multiple `.txt` files that chain together (or with a pause; is there an escape code for a pause?) to show the UX flow.
 - Consider plumbing `lua_State*` through all layers to help guarantee things don't accidentally cross from a coroutine into main?
 - Color themes.  Some way to import color settings en masse.  Some way to export color settings as well?
-- Allow removing event handlers, e.g. `clink.onbeginedit(func)` to add an event handler, and something like `clink.onbeginedit(func, false)` or `clink.removebeginedit(func)` to remove one?  Or maybe return a function that can be called to remove it, e.g. like below (but make sure repeated calls become no-ops).  The `clink-diagnostics` command would need to still show any removed event handlers until the next beginedit.  But it gets tricky if `func` is already registered -- should the new redundant registration's removal function be able to remove the pre-existing event handler?
-    ```
+- Allow removing event handlers, e.g. `clink.onbeginedit(func)` to add an event handler, and something like `clink.onbeginedit(func, false)` or `clink.removebeginedit(func)` to remove one?  Or maybe return a function that can be called to remove it, e.g. like below (but make sure repeated calls become no-ops).  The `clink-diagnostics` command would need to still show any removed event handlers until the next `beginedit`.  But it gets tricky if `func` is already registered -- should the new redundant registration's removal function be able to remove the pre-existing event handler?
+
+    ```lua
     local remove = clink.onbeginedit(func) -- add func
     remove()                               -- remove func
     ```
+
 - Allow Lua to set the comment row for the input line?
   - Need a simple and reliable trigger for clearing the comment row later; maybe `clink.onaftercommand()` is enough?
   - Don't add this ability unless there is a way to ensure comment rows don't get "leaked" and continue showing up past when they were relevant.
@@ -39,23 +45,26 @@ _This todo list describes ChrisAnt996's current intended roadmap for Clink's fut
 - Issue #554.  Consider adding some way to configure Clink to try to run as a "portable program" in the sense that it doesn't write to any OS default locations (such as %TEMP%) and instead writes only to places that are specifically configured.  But Lua scripts and programs they launch would need to also have their own special "portable program" support to avoid writing to OS default locations (especially %TEMP%).  And what size of temporary files are ok to redirect to a "portable storage"?  And who maintains/purges files from the portable storage?  Because Clink runs scripts and other programs, trying to support a "portable program" mode is more complicated than it might sound at first.
 
 ## Follow Up
-- Push update to z.lua repo.
+
+- Push update to `z.lua` repo.
 
 ## Argmatcher syntax
-- See the argmatcher_syntax branch.
 
-<br/>
-<br/>
+- See the `argmatcher_syntax` branch.
 
-# "New" commits from Martin
+---
 
-## To Be Considered
+## "New" commits from Martin
+
+### To Be Considered
+
 - Ctrl-W changes.  While I agree in principle, this kind of change upsets people who are used to bash.  Maybe it should only apply when `clink.default_bindings` == `windows`?
   - [Ctrl-W is more useful if it kills on more granular word boundaries](https://github.com/mridgers/clink/commit/5ee004074e0869273ac42006edef4bcdcfd0e24f)
   - [Smarter Ctrl-W word deletion](https://github.com/mridgers/clink/commit/a385a1695bb425d6f48aae4e587c9c06af8515f6)
 - [Type name style change](https://github.com/mridgers/clink/commit/e6baa31badb8854413dd34988cc33b7aeb68b7e0) -- Huge; renames types from `foo_bar` to `FooBar`.
 
-## No
+### No
+
 - [Changed member style](https://github.com/mridgers/clink/commit/fd5041a34ba162fd3adc1b7b0c5910438e343235) -- Huge; renames members from `m_foo` to `_foo`.  And what about `c_` and `s_` and `g_`?  Keeping `m_` seems useful, and avoids a huge amount of churn.
 - It could be reasonable to add an iterator version of `os.globfiles()`, but replacing it breaks compatibility -- The way these commits implemented it is problematic because it relies exclusively on garbage collection to release the OS FindFirstFile handle, and that can create sharing violations which the Lua script cannot fix except by forcing garbage collection.  But something similar to `io.open()` and `:lines()` and `:close()` would be fine, and would be consistent with `opendir()`, `readdir()`, and `closedir()`.
   - [Made Lua's os.glob*() work like an iterator instead of building a table](https://github.com/mridgers/clink/commit/13fc3b68046d2cee0f2188b9c8d54fa0cbc18718)
@@ -89,9 +98,10 @@ _This todo list describes ChrisAnt996's current intended roadmap for Clink's fut
 <br/>
 <br/>
 
-# APPENDICES
+## APPENDICES
 
-## Known Issues
+### Known Issues
+
 - When `echo` is `off`, CMD doesn't print a prompt, and Clink can't which ReadConsoleW calls are for reading the input line.  In theory, Clink could use `RtlCaptureStackBackTrace()` to deduce when a call is for the input line (see comment in `host_cmd::read_console()`), but that API isn't reliable for use in non-debug code.
 - `foo bar a/b/c` will try to expand `a/b/c` as an abbreviated path even if `foo bar` never generates filename matches.  This is a case that Clink can't really get perfectly right anymore, because of the automatic deduction of whether to use file matches.  Overall, this seems acceptable.
 - Readline's `expand_tilde()` doesn't handle embedded `{space}{tilde}{pathsep}` correctly in strings; `rl.expandtilde()` does, and has an optional parameter to use Readline's original style of tilde expansion.
@@ -102,13 +112,15 @@ _This todo list describes ChrisAnt996's current intended roadmap for Clink's fut
 - The auto-updater settings are stored in the profile.  That makes it more cumbersome to control the auto-updater settings if you use multiple Clink profiles.  However, it makes it possible to control the auto-updater settings separately in "portable installs" (e.g. on a USB memory stick).
 - Lua code can check if there is real console input available, and can read real console input.  But there is no way for Lua code to check whether there is any input queued for Readline (pending input, pushed input, macro text).  That probably makes sense, since there is (correctly) no way for Lua code to read input queued for Readline.
 
-## Mystery
+### Mystery
+
 - Once in a while raw mouse input sequences spuriously show up in the edit line; have only noticed it when the CMD window did not have focus at the time.  _[Not fixed by bb870fc494.]_ _[Have not seen for many weeks.]_ _[Likely due to `ENABLE_VIRTUAL_TERMINAL_INPUT` and largely mitigated by a8d80b752a.]_ _[Root cause is https://github.com/microsoft/terminal/issues/15711.]_
 - Mouse input toggling is unreliable in Windows Terminal, and sometimes ends up disallowing mouse input.  _[Might be fixed by bb870fc494?]_
 - `"qq": "QQ"` in `.inputrc`, and then type `qa` --> infinite loop.  _[Was occurring in a 1.3.9 development build; but no longer repros in a later 1.3.9 build, and also does not repro in the 1.3.8 release build.]_
 - Windows 10.0.19042.630 seems to have problems when using WriteConsoleW with ANSI escape codes in a powerline prompt in a git repo.  But Windows 10.0.19041.630 doesn't.
 
-## Punt
+### Punt
+
 - Clink's `win_terminal_in` keyboard driver generates some things differently than VT220:
   - Ideally it might have mapped `CTRL-SPC`->0x00(`^@`), `CTRL--`->0x0d(`^M`), `CTRL-/`->0x1f(`^_`), `CTRL-?`->0x7f(`^?` aka `Rubout`).  But I think Clink's approach is overall better for those keys.
   - Ubuntu in Windows Terminal receives `^?` for `BACKSPC` and `^H` for `CTRL-BACKSPC`.  But that seems backwards versus what I've always seen on many systems over the decades, so I think Clink should stick with `^H` for `BACKSPC` and `^?` for `CTRL-BACKSPC`.
@@ -142,6 +154,7 @@ _This todo list describes ChrisAnt996's current intended roadmap for Clink's fut
     - E.g. a prompt whose last line wraps TWICE and has one UTF8 multibyte character in the FIRST wrapped segment; cursor position on the final line is offset wrongly.
       - It looks like this line `nleft = cpos_buffer_position - pos;` is trying to reset `nleft` to only include positions on the current screen row, which then throws off the `woff` arithmetic.  It could maybe use modulus on the overall position, but that wouldn't account for double-wide characters that don't fit at the end of a screen row and wrap "early".
       - This code might be relevant:
+
           ```c
           /* This assumes that all the invisible characters are split
              between the first and last lines of the prompt, if the
@@ -149,6 +162,7 @@ _This todo list describes ChrisAnt996's current intended roadmap for Clink's fut
           /* XXX - not sure this is ever executed */
           _rl_last_c_pos -= (wrap_offset-prompt_invis_chars_first_line);
           ```
+
     - E.g. a prompt whose last line wraps AT the screen width and contains multibyte UTF8 characters; cursor position near the beginning of the input line gets positioned incorrectly.
       - `_rl_last_c_pos` is negative on entry to `rl_redisplay()`.
       - Because the "yet another special case" logic is triggered incorrectly, and adjusts cpos incorrectly, which carries forward to future calls.
@@ -190,4 +204,4 @@ _This todo list describes ChrisAnt996's current intended roadmap for Clink's fut
 - [#486](https://github.com/mridgers/clink/issues/486) **Ctrl+C** doesn't always work properly _[Unrelated to Clink; the exact same behavior occurs with plain cmd.exe]_
 
 ---
-Chris Antos - sparrowhawk996@gmail.com
+Chris Antos - <sparrowhawk996@gmail.com>
