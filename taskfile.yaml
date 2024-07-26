@@ -4,7 +4,8 @@
 version: '3'
 
 vars:
-  GREETING: Hello, World!
+  BUILD_DIR: .build
+  GENERATOR: vs2022
 
 tasks:
   default:
@@ -18,16 +19,47 @@ tasks:
       - cmd: scoop install main/premake
         platforms: [windows]
 
-  build:
+  configure:
+    aliases: [c, cfg, setup]
     deps: [premake]
+    sources:
+      - '*.lua'
+    generates:
+      - '{{.BUILD_DIR}}/{{.GENERATOR}}/*.sln'
+      - '{{.BUILD_DIR}}/{{.GENERATOR}}/*.vcxproj'
     cmds:
-      - cmd: premake5 vs2022
+      - cmd: premake5 {{.GENERATOR}}
         platforms: [windows]
-      - cmd: premake gmake2
-        platforms: [linux, darwin]
+
+  build:
+    aliases: [b, bld]
+    deps: [configure]
+    sources:
+      - '{{.BUILD_DIR}}/{{.GENERATOR}}/*.sln'
+      - '{{.BUILD_DIR}}/{{.GENERATOR}}/*.vcxproj'
+      - '**/*.{c,cpp,h,hpp}'
+    generates:
+      - '{{.BUILD_DIR}}/{{.GENERATOR}}/bin/release/clink_x64.exe'
+    cmds:
       - task: msbuild
         vars:
-          SOLUTION: .build/vs2022/clink.sln
+          SOLUTION: '{{.BUILD_DIR}}/{{.GENERATOR}}/clink.sln'
+          CONFIG: Release
+
+  lua:
+    aliases: [l]
+    silent: true
+    cmds:
+      - cmd: lua -v
+      - cmd: lua -e "print('Hello, Lua!')"
+
+  wildmatch:
+    cmds:
+      - cmd: make -C "{{ joinPath .TASKFILE_DIR "wildmatch" }}"
+
+  readline:
+    cmds:
+      - cmd: make -C "{{ joinPath .TASKFILE_DIR "readline" "readline" }}"
 
   msbuild:
     aliases: [build, b]
