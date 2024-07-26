@@ -1,6 +1,8 @@
-.build
-tags
+.git/
+.build/
+tags/
 *.swp
 *.exe
 *.log
 *.patch
+.task/

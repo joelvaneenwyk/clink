@@ -9,6 +9,7 @@ argmatchers
 asmv
 autorun
 Autorun
+builddir
 buildoptions
 chaincommand
 characterset
@@ -20,6 +21,7 @@ comparematches
 consoleapp
 creatwth
 ctrld
+DCMAKE
 describemacro
 disolarm
 disolia
@@ -67,6 +69,7 @@ lstr
 LSTR
 luac
 luafunc
+MAKEARGS
 makesettings
 markdownlint
 MBCS
@@ -90,6 +93,7 @@ onfilterinput
 onfiltermatches
 oninputlinechanged
 overread
+platformdir
 popuplist
 Posix
 postbuild
