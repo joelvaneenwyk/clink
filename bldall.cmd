@@ -1,5 +1,5 @@
 @echo off
-setlocal
+setlocal EnableExtensions
 
 set EC=echo
 set CP=cp.exe /uy
@@ -38,7 +38,11 @@ for /f %%a in ('where msbuild.exe 2^>nul') do (
 	goto :gotmsbuild
 )
 
-set __MSBUILD="%ProgramFiles(x86)%\Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin\MSBuild.exe"
+set __MSBUILD="%ProgramFiles%\Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin\MSBuild.exe"
+if exist %__MSBUILD% goto gotmsbuild
+set __MSBUILD="%ProgramFiles%\Microsoft Visual Studio\2022\Preview\MSBuild\Current\Bin\MSBuild.exe"
+if exist %__MSBUILD% goto gotmsbuild
+set __MSBUILD="%ProgramFiles%\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\MSBuild.exe"
 if exist %__MSBUILD% goto gotmsbuild
 set __MSBUILD="%ProgramFiles(x86)%\Microsoft Visual Studio\2019\Enterprise\MSBuild\Current\Bin\MSBuild.exe"
 if exist %__MSBUILD% goto gotmsbuild
@@ -68,21 +72,18 @@ if exist *.sln (
 ) else if exist .build\vs2022\*.sln (
 	for %%a in (.build\vs2022\*.sln) do (
 		set __SLN="%%a"
-		set __MSBUILD="%ProgramFiles%\Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin\MSBuild.exe"
 		set __VSVER=2022
 		goto :gotsln
 	)
 ) else if exist .build\vs2019\*.sln (
 	for %%a in (.build\vs2019\*.sln) do (
 		set __SLN="%%a"
-		set __MSBUILD="%ProgramFiles(x86)%\Microsoft Visual Studio\2019\Enterprise\MSBuild\Current\Bin\MSBuild.exe"
 		set __VSVER=2019
 		goto :gotsln
 	)
 ) else if exist .build\vs2017\*.sln (
 	for %%a in (.build\vs2017\*.sln) do (
 		set __SLN="%%a"
-		set __MSBUILD="%ProgramFiles(x86)%\Microsoft Visual Studio\2017\Enterprise\MSBuild\15.0\Bin\MSBuild.exe"
 		set __VSVER=2017
 		goto :gotsln
 	)
