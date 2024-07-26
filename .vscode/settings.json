@@ -1,0 +1,8 @@
+{
+    "Lua.diagnostics.globals": [
+        "_ACTION"
+    ],
+    "markdown.extension.completion.enabled": true,
+    "markdown.extension.toc.levels": "1..2",
+    "markdown.extension.toc.updateOnSave": true
+}
