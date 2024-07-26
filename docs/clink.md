@@ -1,16 +1,18 @@
 # What is Clink?
 
-Clink combines the native Windows shell cmd.exe with the powerful command line editing features of the GNU Readline library, which provides rich completion, history, and line-editing capabilities. Readline is best known for its use in the Unix shell Bash, the standard shell for many Linux distributions.
+<!-- markdownlint-disable MD033 -->
+
+`Clink` combines the native Windows shell `cmd.exe` with the powerful command line editing features of the `GNU Readline` library, which provides rich completion, history, and line-editing capabilities. Readline is best known for its use in the Unix shell `Bash`, the standard shell for many Linux distributions.
 
 <a name="features"></a>
 
-### Feature Highlights
+## Feature Highlights
 
 <div class="promo_box">
 <div class="promo_box">
 <div class="promo_block">
 
-**Auto-Suggestions**
+### Auto-Suggestions
 
 Clink offers suggestions as you type based on history, files, and completions.
 
@@ -24,7 +26,7 @@ See [Auto-Suggest](#gettingstarted_autosuggest) to learn more.
 </div>
 <div class="promo_block">
 
-**Completions**
+### Completions
 
 Clink can complete words when you press <kbd>Tab</kbd> or <kbd>Ctrl</kbd>-<kbd>Space</kbd>.
 
@@ -37,7 +39,7 @@ See [How Completion Works](#how-completion-works) to learn more.
 <div class="promo_box">
 <div class="promo_block">
 
-**Persistent History**
+## Persistent History
 
 Clink stores persistent history between sessions.
 
@@ -51,7 +53,7 @@ See [Saved Command History](#saved-command-history) to learn more.
 </div>
 <div class="promo_block">
 
-**Scriptable Prompt and Colored Input**
+## Scriptable Prompt and Colored Input
 
 You can customize the prompt dynamically with Lua scripts -- like in other shells -- but never before possible in cmd.exe!
 
@@ -68,7 +70,7 @@ See [Popular Scripts](#popular-scripts) and [Colors](#gettingstarted_colors) and
 <div class="promo_box">
 <div class="promo_block">
 
-**Command Line Editing Improvements**
+## Command Line Editing Improvements
 
 Clink supercharges the command line with new input editing commands and configurable key bindings.  For example,
 
@@ -83,7 +85,7 @@ See [Key Bindings](#gettingstarted_keybindings) to learn more.
 </div>
 <div class="promo_block">
 
-**Convenience**
+## Convenience
 
 Optional auto-answering of the "[Terminate batch job?](#cmd_auto_answer)" prompt.
 
@@ -559,7 +561,7 @@ Name                         | Default [*](#alternatedefault) | Description
 
 <a name="alternatedefault"></a>
 
-**&ast;** Some settings have alternative default values when Clink is installed with "Use enhanced default settings" checked in the setup program.  This enables more of Clink's enhancements by default.
+## &ast; Some settings have alternative default values when Clink is installed with "Use enhanced default settings" checked in the setup program.  This enables more of Clink's enhancements by default.
 
 > **Compatibility Notes:**
 > - The `esc_clears_line` setting has been replaced by a [`clink-reset-line`](#rlcmd-clink-reset-line) command that is by default bound to the <kbd>Escape</kbd> key.  See [Customizing Key Bindings](#keybindings) for more information.
@@ -1478,7 +1480,7 @@ Command | Key | Description
 
 <a name="alternatedefaultcommand"></a>
 
-**&ast;** Some commands have alternative default key bindings when Clink is installed with "Use enhanced default settings" checked in the setup program or when [`clink.default_bindings`](#clink_default_bindings) is set to `windows`.
+## &ast; Some commands have alternative default key bindings when Clink is installed with "Use enhanced default settings" checked in the setup program or when [`clink.default_bindings`](#clink_default_bindings) is set to `windows`.
 
 <a name="completioncolors"></a>
 
@@ -1957,7 +1959,7 @@ Clink and parses the input line into a [`line_state`](#line_state) by ending a w
 - Punctuation symbols `'`, `&backprime;`, `=`, `+`, `;`, and `,`.
 - Grouping symbols `(`, `)`, `[`, `]`, `{`, and `}`.
 
-However, many programs parse their command line arguments using different word break characters than CMD does.  
+However, many programs parse their command line arguments using different word break characters than CMD does.
 
 In Clink v1.5.17 and higher, argmatchers can override the word break rules for specific argument positions by including `nowordbreakchars=","` (or set `nowordbreakchars=` a list of characters that shouldn't denote word breaks).  This can allow more accurate completions and input line coloring when these characters are present.  But `nowordbreakchars` is always ignored for builtin CMD commands and Batch scripts (because CMD.exe itself always parses word breaks a specific way).  Flags in argmatchers for anything other than builtin CMD commands and Batch scripts default to assuming `nowordbreakchars="'&backprime;+;,"`, but that can be overridden by setting `nowordbreakchars=` some other string.
 
