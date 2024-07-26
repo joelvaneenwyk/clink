@@ -6,6 +6,8 @@ local any_warnings_or_failures = nil
 local include_arm64 = true
 local msbuild_locations = {
     "c:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\MSBuild\\Current\\Bin",
+    "c:\\Program Files\\Microsoft Visual Studio\\2022\\Preview\\MSBuild\\Current\\Bin",
+    "c:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\MSBuild\\Current\\Bin",
     "c:\\Program Files (x86)\\Microsoft Visual Studio\\2019\\Enterprise\\MSBuild\\Current\\Bin",
     "c:\\Program Files (x86)\\Microsoft Visual Studio\\2017\\Enterprise\\MSBuild\\Current\\Bin",
 }
